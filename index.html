@@ -1,0 +1,481 @@
+﻿<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#d5a14a" />
+    <link rel="manifest" href="./manifest.webmanifest?v=20260310g" />
+    <title>F-Tsume</title>
+    <link rel="stylesheet" href="./style.css?v=20260311b" />
+    <script defer src="./app.js?v=20260311bd"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <h1>F-Tsume</h1>
+        <div class="controls">
+          <button id="btnRuleDialogOpen" type="button">ルール設定</button>
+          <button id="btnMiscDialogOpen" type="button">各種設定</button>
+          <button id="btnIoDialogOpen" type="button">入出力</button>
+          <button id="btnRefresh" type="button">再読込</button>
+          <button id="btnModePlay" type="button" class="mode-toggle">検討モード</button>
+          <button id="btnModeEdit" type="button" class="mode-toggle">編集モード</button>
+        </div>
+      </header>
+
+      <section class="statusbar">
+        <div id="modeInfo">モード：-</div>
+        <div id="turnInfo">手番：-</div>
+        <div id="ruleNameInfo">ルール：-</div>
+      </section>
+
+      <section class="layout">
+        <div class="board-card">
+          <div class="board-head">
+            <h2>盤面</h2>
+            <div id="selectedInfo">選択：なし</div>
+          </div>
+          <div id="hand1Wrap" class="hand-strip">
+            <div class="hand-label">△受方 持駒</div>
+            <div id="hand1List" class="hand-list"></div>
+          </div>
+          <div id="boardGrid" class="board-grid"></div>
+          <div id="hand0Wrap" class="hand-strip">
+            <div class="hand-label">▲攻方 持駒</div>
+            <div id="hand0List" class="hand-list"></div>
+          </div>
+          <div id="pieceBoxBoardHost">
+            <div id="pieceBoxWrap" class="piece-box" hidden>
+              <div class="piece-box-title-row">
+                <div class="piece-box-title">駒箱</div>
+                <div class="piece-box-mode-buttons">
+                  <button id="btnPieceBoxStandard" type="button">標準駒数</button>
+                  <button id="btnPieceBoxNonStandard" type="button">非標準駒数</button>
+                </div>
+              </div>
+              <div id="pieceBoxFairyTabs" class="piecebox-fairy-tabs" hidden>
+                <button type="button" class="piecebox-fairy-tab" data-piecebox-fairy-tab="leaper">Leaper系</button>
+                <button type="button" class="piecebox-fairy-tab" data-piecebox-fairy-tab="rider">Rider系</button>
+                <button type="button" class="piecebox-fairy-tab" data-piecebox-fairy-tab="hopper">Hopper系</button>
+                <button type="button" class="piecebox-fairy-tab" data-piecebox-fairy-tab="other">その他</button>
+                <button type="button" class="piecebox-fairy-tab" data-piecebox-fairy-tab="custom">追加駒</button>
+              </div>
+              <div id="pieceBoxList" class="piece-box-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="side">
+          <section id="historyPanel" class="panel">
+            <div class="history-nav">
+              <button id="btnHistStart" type="button">|&lt;</button>
+              <button id="btnHistPlayReverse" type="button">&lt;&lt;</button>
+              <button id="btnHistBack" type="button">&lt;</button>
+              <button id="btnHistForward" type="button">&gt;</button>
+              <button id="btnHistPlay" type="button">&gt;&gt;</button>
+              <button id="btnHistEnd" type="button">&gt;|</button>
+            </div>
+            <h2>棋譜</h2>
+            <div class="history-info-row">
+              <div id="historyInfo" class="muted">-</div>
+              <div class="history-actions">
+                <button id="btnRepeatDialogOpen" type="button">反復</button>
+                <button id="btnPromoteBranch" type="button">変化を本譜に</button>
+                <button id="btnDeleteBranch" type="button">手順削除</button>
+              </div>
+            </div>
+            <div id="historyColumns" class="history-columns">
+              <div id="historyMainHeader">本譜</div>
+              <div id="historyBranchHeader">変化</div>
+              <div
+                id="historyDivider"
+                class="history-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="本譜と変化の区切り"
+                tabindex="0"
+              ></div>
+            </div>
+            <div id="historyList" class="history-list"></div>
+          </section>
+
+          <section id="legalPanel" class="panel">
+            <div class="legal-head">
+              <h2 id="legalTitle">可能指し手一覧</h2>
+              <div class="legal-mode-switch">
+                <button id="btnPlayModeNormal" type="button">通常</button>
+                <button id="btnPlayModeReverse" type="button">逆算</button>
+              </div>
+            </div>
+            <div id="legalSummary" class="muted">-</div>
+            <ul id="legalList" class="legal-list"></ul>
+          </section>
+
+          <section id="pieceBoxSidePanel" class="panel" hidden>
+            <h2>駒箱</h2>
+            <div id="editQuickActions" class="edit-quick-actions">
+              <button id="btnNewTsume" type="button">詰将棋</button>
+              <button id="btnEditClearGoteHandToBox" type="button">後手持駒を<br>駒箱へ</button>
+              <button id="btnNewHirate" type="button">平手</button>
+              <button id="btnEditTurnTop" type="button" hidden>手番変更</button>
+              <button id="btnEditAttrDialogTop" type="button">属性編集</button>
+            </div>
+            <div class="edit-owner-quick">
+              <span class="edit-owner-quick-label">配置所属</span>
+              <div class="owner-buttons owner-buttons--quick">
+                <button id="btnQuickOwnerSente" type="button">▲攻方</button>
+                <button id="btnQuickOwnerGote" type="button">△受方</button>
+                <button id="btnQuickOwnerNeutral" type="button">□中立</button>
+              </div>
+            </div>
+            <div id="pieceBoxSideHost"></div>
+          </section>
+
+          <section id="editPanelSection" class="panel" hidden>
+            <h2>編集</h2>
+            <div class="edit-panel">
+              <fieldset class="tk-group">
+                <legend>駒選択</legend>
+                <div class="edit-row compact">
+                  <label for="editPieceSelect">駒</label>
+                  <select id="editPieceSelect"></select>
+                </div>
+                <div class="edit-row compact">
+                  <label>所属</label>
+                  <div class="owner-buttons">
+                    <button id="btnEditOwnerSente" type="button">▲攻方</button>
+                    <button id="btnEditOwnerGote" type="button">△受方</button>
+                    <button id="btnEditOwnerNeutral" type="button">□中立</button>
+                  </div>
+                </div>
+                <div class="edit-row">
+                  <button id="btnEditPlaceMode" type="button">配置モード</button>
+                  <button id="btnEditEraseMode" type="button">削除モード</button>
+                </div>
+              </fieldset>
+
+              <fieldset class="tk-group">
+                <legend>編集操作</legend>
+                <div class="edit-row">
+                  <button id="btnEditAddSenteHand" type="button">▲持駒 +1</button>
+                  <button id="btnEditRemoveSenteHand" type="button">▲持駒 -1</button>
+                </div>
+                <div class="edit-row">
+                  <button id="btnEditAddGoteHand" type="button">△持駒 +1</button>
+                  <button id="btnEditRemoveGoteHand" type="button">△持駒 -1</button>
+                </div>
+                <div class="edit-row">
+                  <button id="btnEditPresetHirate" type="button">平手初形</button>
+                  <button id="btnEditPresetTsume" type="button">詰将棋初形</button>
+                </div>
+                <div class="edit-row">
+                  <button id="btnEditPresetClear" type="button">盤面クリア</button>
+                  <button id="btnEditSwitchTurn" type="button">手番切替</button>
+                </div>
+              </fieldset>
+
+              <fieldset class="tk-group">
+                <legend>属性設定</legend>
+                <div class="edit-row compact">
+                  <label>対象座標</label>
+                  <div class="coord-inputs">
+                    <label for="attrFileInput">筋</label>
+                    <input id="attrFileInput" type="number" min="1" max="9" value="5" />
+                    <label for="attrRankInput">段</label>
+                    <input id="attrRankInput" type="number" min="1" max="9" value="5" />
+                  </div>
+                </div>
+                <div class="edit-row">
+                  <button id="btnAttrLoadFromBoard" type="button">盤面から読込</button>
+                  <button id="btnAttrApplyToBoard" type="button">盤面へ適用</button>
+                </div>
+                <div class="edit-row compact">
+                  <label for="attrDisplayNameInput">表示文字</label>
+                  <input id="attrDisplayNameInput" type="text" placeholder="空文字で既定" />
+                </div>
+                <div class="edit-row compact">
+                  <label for="attrPromoteToSelect">成り先</label>
+                  <select id="attrPromoteToSelect"></select>
+                </div>
+                <div class="edit-row checks">
+                  <label><input id="attrToHandInput" type="checkbox" /> 取捨駒</label>
+                  <label><input id="attrIsKingInput" type="checkbox" /> 玉属性</label>
+                  <label><input id="attrImmortalInput" type="checkbox" /> 不滅属性</label>
+                </div>
+                <div class="edit-row">
+                  <button id="btnAttrApplyToType" type="button">同駒種へ適用</button>
+                  <span class="muted inline-note">対象駒種：上の駒選択</span>
+                </div>
+              </fieldset>
+            </div>
+          </section>
+
+          <section id="logPanel" class="panel">
+            <h2>ログ</h2>
+            <pre id="logArea" class="log-area"></pre>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <dialog id="ruleDialog" class="rule-dialog">
+      <form method="dialog" class="rule-dialog-form">
+        <div class="rule-dialog-header">
+          <h3>ルール設定</h3>
+          <button id="btnRuleReset" type="button" class="rule-reset-btn">リセット</button>
+        </div>
+        <div id="ruleNameText" class="muted rule-name-text">-</div>
+        <div class="rule-panel-body">
+          <div class="rule-row">
+            <label for="ruleStrategySelect">戦略</label>
+            <select id="ruleStrategySelect"></select>
+          </div>
+          <div class="rule-row">
+            <label for="ruleObjectiveSelect">目的</label>
+            <select id="ruleObjectiveSelect"></select>
+          </div>
+          <div class="rule-row compact">
+            <label for="ruleProblemPlyInput">手数</label>
+            <input id="ruleProblemPlyInput" type="number" min="0" value="0" />
+          </div>
+          <div id="ruleTabs" class="rule-tabs">
+            <button type="button" class="rule-tab" data-rule-tab="performance">性能変化</button>
+            <button type="button" class="rule-tab" data-rule-tab="selection">手の選択</button>
+            <button type="button" class="rule-tab" data-rule-tab="capture_owner">取り方/所属</button>
+            <button type="button" class="rule-tab" data-rule-tab="other">その他</button>
+          </div>
+          <div id="ruleConstraintInfo" class="muted rule-constraint-info"></div>
+          <div id="ruleFlags" class="rule-flags"></div>
+          <div class="rule-actions">
+            <button id="btnRuleApply" type="button">適用</button>
+            <button id="btnRuleDialogClose" type="button">閉じる</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="miscDialog" class="rule-dialog">
+      <form method="dialog" class="rule-dialog-form">
+        <h3>各種設定</h3>
+        <div class="rule-panel-body">
+          <div class="misc-meta">
+            <div id="sessionInfo">session: -</div>
+            <div id="revisionInfo">revision: -</div>
+          </div>
+          <div id="miscSettingList" class="misc-settings-list"></div>
+          <div class="rule-actions">
+            <button id="btnMiscApply" type="button">適用</button>
+            <button id="btnMiscDialogClose" type="button">閉じる</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="ioDialog" class="io-dialog">
+      <form method="dialog" class="io-dialog-form">
+        <div class="io-dialog-header">
+          <h3>入出力</h3>
+          <div id="ioClipboardNotice" class="io-clipboard-notice" hidden></div>
+        </div>
+        <div id="ioBusy" class="io-busy" hidden>読込中...</div>
+        <progress id="ioProgress" class="io-progress" max="100" value="0" hidden></progress>
+        <div id="ioProgressText" class="io-progress-text" hidden>0%</div>
+        <textarea
+          id="ioText"
+          class="io-text"
+          placeholder="ファイルをここへドラッグ＆ドロップ"
+        ></textarea>
+        <div class="io-section-label">入力</div>
+        <div class="io-input-actions">
+          <button id="btnLoadClipboard" type="button">クリップボード読込</button>
+          <button id="btnIoUpload" type="button">ファイル読込</button>
+        </div>
+        <div class="io-section-label">出力</div>
+        <div class="io-output-actions">
+          <button id="btnExportSfen" type="button">SFENコピー</button>
+          <button id="btnExportKifu" type="button">棋譜コピー</button>
+          <button id="btnIoDownload" type="button">TXTダウンロード</button>
+        </div>
+        <input id="ioFileInput" type="file" accept=".txt,.kif,.kifu,.sfen,text/plain" hidden />
+        <div class="io-dialog-actions">
+          <button id="btnIoDialogClose" type="button">閉じる</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="promoteDialog" class="attr-dialog">
+      <form method="dialog" class="attr-dialog-form">
+        <h3>成生選択</h3>
+        <div class="attr-target">成りますか？</div>
+        <div class="attr-actions">
+          <button id="btnPromoteYes" type="button">成る</button>
+          <button id="btnPromoteNo" type="button">不成</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="playSubModeDialog" class="attr-dialog">
+      <form method="dialog" class="attr-dialog-form">
+        <h3 id="playSubModeDialogTitle">モード切替確認</h3>
+        <div id="playSubModeDialogMessage" class="attr-target">-</div>
+        <div id="playSubModeDialogActions" class="play-submode-dialog-actions"></div>
+      </form>
+    </dialog>
+
+    <dialog id="reverseCaptureDialog" class="attr-dialog">
+      <form method="dialog" class="attr-dialog-form">
+        <h3>逆算候補選択</h3>
+        <div id="reverseCaptureDialogInfo" class="attr-target">駒取候補を選択してください</div>
+        <div id="reverseCaptureDialogOptions" class="reverse-capture-options"></div>
+        <div class="reverse-capture-actions">
+          <button id="btnReverseCaptureCancel" type="button">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="branchDeleteDialog" class="attr-dialog">
+      <form method="dialog" class="attr-dialog-form">
+        <h3>手順削除</h3>
+        <div id="branchDeleteTarget" class="attr-target">この手順を削除しますか？</div>
+        <div class="attr-actions">
+          <button id="btnBranchDeleteOk" type="button">削除</button>
+          <button id="btnBranchDeleteCancel" type="button">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="historyBranchDialog" class="history-branch-dialog">
+      <form method="dialog" class="history-branch-dialog-form">
+        <h3 id="historyBranchDialogTitle">変化一覧</h3>
+        <div id="historyBranchDialogList" class="history-branch-dialog-list"></div>
+        <div class="history-branch-dialog-actions">
+          <button id="btnHistoryBranchDialogClose" type="button">閉じる</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="repeatDialog" class="attr-dialog">
+      <form method="dialog" class="attr-dialog-form">
+        <h3>手順反復</h3>
+        <div id="repeatRangeInfo" class="attr-target">対象手数：-</div>
+        <div class="repeat-row">
+          <label for="repeatFromInput">開始手数</label>
+          <input id="repeatFromInput" type="number" min="1" step="1" />
+        </div>
+        <div class="repeat-row">
+          <label for="repeatToInput">終了手数</label>
+          <input id="repeatToInput" type="number" min="1" step="1" />
+        </div>
+        <div class="repeat-row">
+          <label for="repeatCountInput">反復回数</label>
+          <input id="repeatCountInput" type="number" min="1" step="1" />
+        </div>
+        <div class="repeat-note">現在局面から反復を適用します。</div>
+        <div class="attr-actions">
+          <button id="btnRepeatApply" type="button">実行</button>
+          <button id="btnRepeatDialogClose" type="button">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="attrDialog" class="attr-dialog">
+      <form id="attrDialogForm" method="dialog" class="attr-dialog-form">
+        <h3>属性設定</h3>
+        <div id="attrTargetInfo" class="attr-target">-</div>
+        <div class="attr-row">
+          <label for="attrScopeSelect">適用範囲</label>
+          <select id="attrScopeSelect"></select>
+        </div>
+        <div class="attr-row">
+          <label for="attrDlgDisplayNameInput">表示文字</label>
+          <input id="attrDlgDisplayNameInput" type="text" placeholder="空文字で既定" />
+        </div>
+        <div class="attr-row">
+          <label for="attrDlgPromoteToSelect">成り先</label>
+          <select id="attrDlgPromoteToSelect"></select>
+        </div>
+        <div class="attr-row checks">
+          <label><input id="attrDlgToHandInput" type="checkbox" /> 取捨駒</label>
+          <label><input id="attrDlgIsKingInput" type="checkbox" /> 玉属性</label>
+          <label><input id="attrDlgImmortalInput" type="checkbox" /> 不滅属性</label>
+        </div>
+        <div class="attr-actions">
+          <button id="attrDialogOk" type="submit">OK</button>
+          <button id="attrDialogCancel" type="button">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="customFairyDialog" class="attr-dialog">
+      <form method="dialog" class="attr-dialog-form">
+        <h3>フェアリー駒追加</h3>
+        <div class="misc-fairy-form">
+          <label class="misc-fairy-field">
+            <span class="misc-fairy-field-label">内部名</span>
+            <input id="customFairyNameInput" type="text" class="misc-fairy-field-input" placeholder="例: MyFairy" />
+          </label>
+          <label class="misc-fairy-field">
+            <span class="misc-fairy-field-label">表示文字</span>
+            <input id="customFairyDisplayInput" type="text" class="misc-fairy-field-input" placeholder="例: 新" />
+          </label>
+          <label class="misc-fairy-field">
+            <span class="misc-fairy-field-label">動き種別</span>
+            <select id="customFairyMoveModeSelect" class="misc-fairy-field-input">
+              <option value="copy_from">既定駒コピー</option>
+              <option value="leaper">Leaper</option>
+              <option value="rider">Rider</option>
+              <option value="hopper">Hopper</option>
+            </select>
+          </label>
+          <label id="customFairyCopyFromWrap" class="misc-fairy-field">
+            <span class="misc-fairy-field-label">コピー元</span>
+            <select id="customFairyMoveSelect" class="misc-fairy-field-input"></select>
+          </label>
+          <label id="customFairyVectorsWrap" class="misc-fairy-field" hidden>
+            <span class="misc-fairy-field-label">ベクトル</span>
+            <div>
+              <input
+                id="customFairyVectorsInput"
+                type="text"
+                class="misc-fairy-field-input"
+                placeholder="例: 1,2 -1,2 2,1 -2,1"
+              />
+              <div class="misc-fairy-vector-tools">
+                <div class="misc-fairy-vector-presets">
+                  <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="king">王型</button>
+                  <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="rook">飛型</button>
+                  <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="bishop">角型</button>
+                  <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="knight">桂型</button>
+                  <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="dabbaba">戦型</button>
+                  <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="clear">クリア</button>
+                </div>
+                <div class="misc-fairy-vector-manual">
+                  <label>dx <input id="customFairyDxInput" type="number" min="-8" max="8" step="1" value="1" /></label>
+                  <label>dy <input id="customFairyDyInput" type="number" min="-8" max="8" step="1" value="0" /></label>
+                  <button id="btnCustomFairyVectorAdd" type="button" class="misc-fairy-vector-btn">追加</button>
+                  <button id="btnCustomFairyVectorUndo" type="button" class="misc-fairy-vector-btn">1つ戻す</button>
+                </div>
+                <div id="customFairyVectorsPreview" class="misc-fairy-vector-preview">（未入力）</div>
+              </div>
+              <div class="misc-fairy-hint">dx,dy の組を空白区切りで入力（例: 1,0 0,1）</div>
+            </div>
+          </label>
+          <label class="misc-fairy-field">
+            <span class="misc-fairy-field-label">タグ</span>
+            <input id="customFairyTagInput" type="text" class="misc-fairy-field-input" placeholder="例: 自作" />
+          </label>
+          <label class="misc-fairy-field">
+            <span class="misc-fairy-field-label">説明</span>
+            <input id="customFairyDescInput" type="text" class="misc-fairy-field-input" placeholder="例: Queenの動き" />
+          </label>
+        </div>
+        <div class="attr-actions">
+          <button id="btnCustomFairyAdd" type="button">追加</button>
+          <button id="btnCustomFairyClearAll" type="button">この駒を削除</button>
+          <button id="btnCustomFairyClose" type="button">閉じる</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
+

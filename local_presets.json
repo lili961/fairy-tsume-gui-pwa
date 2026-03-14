@@ -1,0 +1,829 @@
+{
+  "presets": {
+    "hirate": {
+      "session_id": "local_template",
+      "revision": 0,
+      "mode": "play",
+      "turn": 0,
+      "board": {
+        "width": 9,
+        "height": 9,
+        "pieces": [
+          {
+            "x": 0,
+            "y": 0,
+            "name": "香",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成香",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 1,
+            "y": 0,
+            "name": "桂",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成桂",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 2,
+            "y": 0,
+            "name": "銀",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成銀",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 3,
+            "y": 0,
+            "name": "金",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": null,
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 4,
+            "y": 0,
+            "name": "王",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": false,
+              "promote_to": null,
+              "is_king": true,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "name": "金",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": null,
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "name": "銀",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成銀",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 7,
+            "y": 0,
+            "name": "桂",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成桂",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 8,
+            "y": 0,
+            "name": "香",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成香",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 1,
+            "y": 1,
+            "name": "飛",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "龍",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 7,
+            "y": 1,
+            "name": "角",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "馬",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 0,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 1,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 2,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 3,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 4,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 5,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 6,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 7,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 8,
+            "y": 2,
+            "name": "歩",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 0,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 1,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 2,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 3,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 4,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 5,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 6,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 7,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 8,
+            "y": 6,
+            "name": "歩",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "と",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 1,
+            "y": 7,
+            "name": "角",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "馬",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 7,
+            "y": 7,
+            "name": "飛",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "龍",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "name": "香",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成香",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 1,
+            "y": 8,
+            "name": "桂",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成桂",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 2,
+            "y": 8,
+            "name": "銀",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成銀",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 3,
+            "y": 8,
+            "name": "金",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": null,
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 4,
+            "y": 8,
+            "name": "玉",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": false,
+              "promote_to": null,
+              "is_king": true,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 5,
+            "y": 8,
+            "name": "金",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": null,
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 6,
+            "y": 8,
+            "name": "銀",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成銀",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 7,
+            "y": 8,
+            "name": "桂",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成桂",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          },
+          {
+            "x": 8,
+            "y": 8,
+            "name": "香",
+            "owner": 0,
+            "attrs": {
+              "display_name": null,
+              "to_hand": true,
+              "promote_to": "成香",
+              "is_king": false,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          }
+        ]
+      },
+      "hands": {
+        "0": [],
+        "1": []
+      },
+      "rules": {
+        "allow_double_fu": false,
+        "allow_drop_fu_into_check": false,
+        "uchifu_simple": false,
+        "uchifu_complete": false,
+        "allow_check_on_self": false,
+        "allow_sente_non_check": false,
+        "circe": false,
+        "anti_circe": false,
+        "pwc": false,
+        "all_in_shogi": false,
+        "andernach": false,
+        "anti_andernach": false,
+        "all_andernach": false,
+        "greedy": false,
+        "abstinence": false,
+        "koko": false,
+        "narikin": false,
+        "torikin": false,
+        "zentorikin": false,
+        "koma_amari_kin": false,
+        "maxi": false,
+        "mini": false,
+        "cant_repeat_type": false,
+        "cant_capture_repeat_type": false,
+        "annan": false,
+        "anpoku": false,
+        "annan_nifu_invalid": false,
+        "patrol": false,
+        "lortap": false,
+        "tenjiku": false,
+        "madrasi": false,
+        "k_madrasi": false,
+        "haimen": false,
+        "taimen": false,
+        "tenkyo": false,
+        "messigny": false,
+        "isardam": false,
+        "isardam_type_b": false,
+        "detect_sennichite": false,
+        "strategy": "詰将棋",
+        "objective": "詰",
+        "problem_ply": 0
+      },
+      "rule_name": "詰将棋",
+      "repeat_params": {
+        "from_ply": null,
+        "to_ply": null,
+        "repeat_count": null
+      }
+    },
+    "tsume": {
+      "session_id": "local_template",
+      "revision": 0,
+      "mode": "play",
+      "turn": 0,
+      "board": {
+        "width": 9,
+        "height": 9,
+        "pieces": [
+          {
+            "x": 4,
+            "y": 0,
+            "name": "王",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": false,
+              "promote_to": null,
+              "is_king": true,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          }
+        ]
+      },
+      "hands": {
+        "0": [],
+        "1": [
+          "飛",
+          "飛",
+          "角",
+          "角",
+          "金",
+          "金",
+          "金",
+          "金",
+          "銀",
+          "銀",
+          "銀",
+          "銀",
+          "桂",
+          "桂",
+          "桂",
+          "桂",
+          "香",
+          "香",
+          "香",
+          "香",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩",
+          "歩"
+        ]
+      },
+      "rules": {
+        "allow_double_fu": false,
+        "allow_drop_fu_into_check": false,
+        "uchifu_simple": false,
+        "uchifu_complete": false,
+        "allow_check_on_self": false,
+        "allow_sente_non_check": false,
+        "circe": false,
+        "anti_circe": false,
+        "pwc": false,
+        "all_in_shogi": false,
+        "andernach": false,
+        "anti_andernach": false,
+        "all_andernach": false,
+        "greedy": false,
+        "abstinence": false,
+        "koko": false,
+        "narikin": false,
+        "torikin": false,
+        "zentorikin": false,
+        "koma_amari_kin": false,
+        "maxi": false,
+        "mini": false,
+        "cant_repeat_type": false,
+        "cant_capture_repeat_type": false,
+        "annan": false,
+        "anpoku": false,
+        "annan_nifu_invalid": false,
+        "patrol": false,
+        "lortap": false,
+        "tenjiku": false,
+        "madrasi": false,
+        "k_madrasi": false,
+        "haimen": false,
+        "taimen": false,
+        "tenkyo": false,
+        "messigny": false,
+        "isardam": false,
+        "isardam_type_b": false,
+        "detect_sennichite": false,
+        "strategy": "詰将棋",
+        "objective": "詰",
+        "problem_ply": 0
+      },
+      "rule_name": "詰将棋",
+      "repeat_params": {
+        "from_ply": null,
+        "to_ply": null,
+        "repeat_count": null
+      }
+    },
+    "clear": {
+      "session_id": "local_template",
+      "revision": 0,
+      "mode": "play",
+      "turn": 0,
+      "board": {
+        "width": 9,
+        "height": 9,
+        "pieces": [
+          {
+            "x": 4,
+            "y": 0,
+            "name": "王",
+            "owner": 1,
+            "attrs": {
+              "display_name": null,
+              "to_hand": false,
+              "promote_to": null,
+              "is_king": true,
+              "immortal": false,
+              "promote_attrs": null
+            }
+          }
+        ]
+      },
+      "hands": {
+        "0": [],
+        "1": []
+      },
+      "rules": {
+        "allow_double_fu": false,
+        "allow_drop_fu_into_check": false,
+        "uchifu_simple": false,
+        "uchifu_complete": false,
+        "allow_check_on_self": false,
+        "allow_sente_non_check": false,
+        "circe": false,
+        "anti_circe": false,
+        "pwc": false,
+        "all_in_shogi": false,
+        "andernach": false,
+        "anti_andernach": false,
+        "all_andernach": false,
+        "greedy": false,
+        "abstinence": false,
+        "koko": false,
+        "narikin": false,
+        "torikin": false,
+        "zentorikin": false,
+        "koma_amari_kin": false,
+        "maxi": false,
+        "mini": false,
+        "cant_repeat_type": false,
+        "cant_capture_repeat_type": false,
+        "annan": false,
+        "anpoku": false,
+        "annan_nifu_invalid": false,
+        "patrol": false,
+        "lortap": false,
+        "tenjiku": false,
+        "madrasi": false,
+        "k_madrasi": false,
+        "haimen": false,
+        "taimen": false,
+        "tenkyo": false,
+        "messigny": false,
+        "isardam": false,
+        "isardam_type_b": false,
+        "detect_sennichite": false,
+        "strategy": "詰将棋",
+        "objective": "詰",
+        "problem_ply": 0
+      },
+      "rule_name": "詰将棋",
+      "repeat_params": {
+        "from_ply": null,
+        "to_ply": null,
+        "repeat_count": null
+      }
+    }
+  }
+}
