@@ -1845,9 +1845,21 @@ body.history-divider-dragging .history-divider::before {
 
 @media (max-width: 560px) {
   :root {
-    --cell-w: 40px;
-    --cell-h: 46px;
     --axis-h: 18px;
     --axis-w: 20px;
+    --mobile-board-margin: 32px;
+    --cell-w: clamp(28px, calc((100vw - var(--mobile-board-margin) - var(--axis-w)) / 9), 40px);
+    --cell-h: clamp(32px, calc(var(--cell-w) * 1.15), 46px);
+  }
+
+  .shell {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 6px;
+  }
+
+  .board-card {
+    padding: 4px;
   }
 }
