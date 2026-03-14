@@ -12528,6 +12528,48 @@ async function editPreset(preset) {
   logLine(`編集プリセット：${preset}`);
 }
 
+function shouldFillGoteHandFromBoxInStandardMode() {
+  if (!state || state.mode !== "edit") return false;
+  if (!pieceBoxStandardMode) return false;
+  const goteHand = Array.isArray(state?.hands?.["1"]) ? state.hands["1"] : [];
+  return goteHand.length <= 0;
+}
+
+function updateEditClearGoteHandButtonLabel() {
+  if (!ui.btnEditClearGoteHandToBox) return;
+  ui.btnEditClearGoteHandToBox.textContent = shouldFillGoteHandFromBoxInStandardMode()
+    ? "駒箱を受方持駒へ"
+    : "受方持駒を駒箱へ";
+}
+
+async function editFillGoteHandFromBoxStandard() {
+  if (!sessionId || !state || state.mode !== "edit") return;
+  let added = 0;
+  const keepSelection = editSelection ? { ...editSelection } : null;
+  for (const [baseName, limitRaw] of Object.entries(STANDARD_COUNTS)) {
+    const limit = Number(limitRaw || 0);
+    if (!Number.isFinite(limit) || limit <= 0) continue;
+    if (localDefaultPieceAttrs(baseName)?.is_king) continue;
+    let remain = Number(remainingStandardCountFor(baseName) || 0);
+    while (Number.isFinite(remain) && remain > 0) {
+      await callEditEndpoint(
+        `/api/v1/sessions/${sessionId}/edit/add-hand`,
+        { owner: 1, name: baseName },
+        keepSelection
+          ? { keepEditSelection: true, keepSelection }
+          : { keepEditSelection: true }
+      );
+      added += 1;
+      remain -= 1;
+    }
+  }
+  if (added > 0) {
+    logLine(`編集移動：駒箱 -> △受方持駒 (${added}枚)`);
+  } else {
+    logLine("編集移動：駒箱 -> △受方持駒 (追加なし)");
+  }
+}
+
 function parseCoordInputs() {
   const file = Number(ui.attrFileInput?.value || 0);
   const rank = Number(ui.attrRankInput?.value || 0);
@@ -18105,6 +18147,7 @@ function getDisplayTurnForUi() {
 }
 
 function renderStatus() {
+  updateEditClearGoteHandButtonLabel();
   if (!state) {
     stopHistoryPlayback({ silent: true });
     if (document?.body) document.body.removeAttribute("data-mode");
@@ -22184,7 +22227,11 @@ async function boot() {
   if (ui.btnEditClearGoteHandToBox) {
     ui.btnEditClearGoteHandToBox.addEventListener("click", async () => {
       try {
-        await editPreset("clear_gote_hand_to_box");
+        if (shouldFillGoteHandFromBoxInStandardMode()) {
+          await editFillGoteHandFromBoxStandard();
+        } else {
+          await editPreset("clear_gote_hand_to_box");
+        }
       } catch (e) {
         logLine(e.message || String(e), true);
       }
