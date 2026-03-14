@@ -14746,14 +14746,27 @@ async function onHandClick(owner, name = null) {
             const moveName = editSelection.name;
             const moveInfo = localParseHandToken(moveName);
             const moveDisp = `${moveInfo.neutral ? "n" : ""}${displayNameForName(moveInfo.name || moveName)}`;
-            await callEditEndpoint(`/api/v1/sessions/${sessionId}/edit/remove-hand`, {
+            const keepHandSelection = {
+              source: "hand",
               owner: fromOwner,
               name: moveName,
-            });
-            await callEditEndpoint(`/api/v1/sessions/${sessionId}/edit/add-hand`, {
-              owner,
-              name: moveName,
-            });
+            };
+            await callEditEndpoint(
+              `/api/v1/sessions/${sessionId}/edit/remove-hand`,
+              {
+                owner: fromOwner,
+                name: moveName,
+              },
+              { keepEditSelection: true, keepSelection: keepHandSelection }
+            );
+            await callEditEndpoint(
+              `/api/v1/sessions/${sessionId}/edit/add-hand`,
+              {
+                owner,
+                name: moveName,
+              },
+              { keepEditSelection: true, keepSelection: keepHandSelection }
+            );
             logLine(
               `編集移動：持駒 ${ownerMark(fromOwner)}${moveDisp} -> ${
                 owner === 0 ? "▲" : "△"
