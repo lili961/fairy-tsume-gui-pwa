@@ -1,24 +1,24 @@
+<?xml version='1.0' encoding='utf-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="F-Tsume icon">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#e4b96a"/>
-      <stop offset="1" stop-color="#cc8c3a"/>
+      <stop offset="0" stop-color="#e4b96a" />
+      <stop offset="1" stop-color="#cc8c3a" />
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="72" fill="url(#bg)"/>
-  <rect x="88" y="72" width="336" height="368" rx="20" fill="#f8e5bf" stroke="#70431b" stroke-width="12"/>
+  <rect width="512" height="512" rx="72" fill="url(#bg)" />
+  <rect x="88" y="72" width="336" height="368" rx="20" fill="#f8e5bf" stroke="#70431b" stroke-width="12" />
   <g stroke="#7d4f1f" stroke-width="8" opacity="0.8">
-    <line x1="88" y1="128" x2="424" y2="128"/>
-    <line x1="88" y1="184" x2="424" y2="184"/>
-    <line x1="88" y1="240" x2="424" y2="240"/>
-    <line x1="88" y1="296" x2="424" y2="296"/>
-    <line x1="88" y1="352" x2="424" y2="352"/>
-    <line x1="144" y1="72" x2="144" y2="440"/>
-    <line x1="200" y1="72" x2="200" y2="440"/>
-    <line x1="256" y1="72" x2="256" y2="440"/>
-    <line x1="312" y1="72" x2="312" y2="440"/>
-    <line x1="368" y1="72" x2="368" y2="440"/>
+    <line x1="88" y1="128" x2="424" y2="128" />
+    <line x1="88" y1="184" x2="424" y2="184" />
+    <line x1="88" y1="240" x2="424" y2="240" />
+    <line x1="88" y1="296" x2="424" y2="296" />
+    <line x1="88" y1="352" x2="424" y2="352" />
+    <line x1="144" y1="72" x2="144" y2="440" />
+    <line x1="200" y1="72" x2="200" y2="440" />
+    <line x1="256" y1="72" x2="256" y2="440" />
+    <line x1="312" y1="72" x2="312" y2="440" />
+    <line x1="368" y1="72" x2="368" y2="440" />
   </g>
-  <polygon points="256,136 318,204 292,304 220,304 194,204" fill="#fff8ea" stroke="#4f2f12" stroke-width="10"/>
-  <text x="256" y="263" text-anchor="middle" font-size="110" font-family="'BIZ UDPGothic', 'Yu Gothic UI', sans-serif" fill="#2f1c08">詰</text>
-</svg>
+  <polygon points="256,112 170,150 126,358 386,358 342,150" fill="#fff8ea" stroke="#4f2f12" stroke-width="10" />
+  <g fill="#2f1c08"><rect x="208" y="164" width="22" height="168" rx="6" /><path d="M208 164 C238 154 292 154 304 166 L298 192 C278 184 242 184 208 192 Z" /><path d="M208 236 C232 228 276 228 286 237 L280 260 C264 253 236 253 208 260 Z" /></g><g><path d="M300 310 C340 260 420 270 420 340 C420 400 350 420 310 380 C295 365 290 340 300 310 Z" fill="#f6fbff" stroke="#bcdcff" stroke-width="6" /><path d="M315 320 C350 310 380 315 400 330" stroke="#d8ebff" stroke-width="4" fill="none" stroke-linecap="round" /><path d="M310 340 C345 330 375 340 395 360" stroke="#d8ebff" stroke-width="4" fill="none" stroke-linecap="round" /><path d="M308 360 C340 355 365 370 380 390" stroke="#d8ebff" stroke-width="4" fill="none" stroke-linecap="round" /></g></svg>
