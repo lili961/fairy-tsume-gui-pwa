@@ -3190,10 +3190,49 @@ function localHistoryMainlineNodes(ctx) {
   return out;
 }
 
-function localStripReplayOwnerPrefix(token) {
+function localHasInlineOpponentMarker(token) {
+  const s = String(token || "").trim();
+  return /^(?:▲|△)?(?:同|[0-9０-９]{2})\s*v/.test(s);
+}
+
+function localStripInlineOpponentMarker(token) {
   const s = String(token || "");
-  if (s.startsWith("v▲") || s.startsWith("v△")) return s.slice(2);
-  if (s[0] === "▲" || s[0] === "△" || s[0] === "v") return s.slice(1);
+  return s.replace(/^((?:▲|△)?(?:同|[0-9０-９]{2}))\s*v/, "$1");
+}
+
+function localInsertInlineOpponentMarker(token) {
+  let s = String(token || "");
+  if (!s) return s;
+  if (localHasInlineOpponentMarker(s)) return s;
+  if (s.startsWith("v▲") || s.startsWith("v△")) {
+    s = `${s.slice(1, 2)}${s.slice(2)}`;
+  } else if (s[0] === "v") {
+    s = s.slice(1);
+  }
+  const m = s.match(/^((?:▲|△)?(?:同|[0-9０-９]{2}))/);
+  if (!m) return `v${s}`;
+  return `${m[1]}v${s.slice(m[1].length)}`;
+}
+
+function localComposeTokenWithOwnerPrefix(prefix, token) {
+  const p = String(prefix || "");
+  const body = String(token || "");
+  if (!p) return body;
+  if (p === "v") return localInsertInlineOpponentMarker(body);
+  if (p === "v▲" || p === "v△") {
+    return localInsertInlineOpponentMarker(`${p.slice(1)}${body}`);
+  }
+  return `${p}${body}`;
+}
+
+function localStripReplayOwnerPrefix(token) {
+  let s = String(token || "");
+  if (s.startsWith("v▲") || s.startsWith("v△")) {
+    s = s.slice(2);
+  } else if (s[0] === "▲" || s[0] === "△" || s[0] === "v") {
+    s = s.slice(1);
+  }
+  s = localStripInlineOpponentMarker(s);
   return s;
 }
 
@@ -3207,27 +3246,46 @@ function localStripReplayOwnerPrefixEachSegment(token) {
 }
 
 function localStripExportOwnerPrefixHead(token) {
-  const s = String(token || "");
-  if (s.startsWith("v▲") || s.startsWith("v△")) return `v${s.slice(2)}`;
-  if (s[0] === "▲" || s[0] === "△") return s.slice(1);
+  let s = String(token || "");
+  if (s.startsWith("v▲") || s.startsWith("v△") || s[0] === "v") {
+    s = localInsertInlineOpponentMarker(s);
+  }
+  if (s[0] === "▲" || s[0] === "△") s = s.slice(1);
   return s;
 }
 
 function localStripExportOwnerPrefixTail(token) {
-  const s = String(token || "");
-  if (s.startsWith("v▲") || s.startsWith("v△")) return s.slice(2);
-  if (s[0] === "▲" || s[0] === "△" || s[0] === "v") return s.slice(1);
+  let s = String(token || "");
+  if (s.startsWith("v▲") || s.startsWith("v△")) {
+    s = s.slice(2);
+  } else if (s[0] === "▲" || s[0] === "△" || s[0] === "v") {
+    s = s.slice(1);
+  }
+  s = localStripInlineOpponentMarker(s);
   return s;
 }
 
 function localParseReplayOwnerPrefix(token, ctx) {
-  const s = String(token || "");
-  if (s.startsWith("v▲")) return { owner: 0, body: s.slice(2) };
-  if (s.startsWith("v△")) return { owner: 1, body: s.slice(2) };
-  if (s[0] === "▲") return { owner: 0, body: s.slice(1) };
-  if (s[0] === "△") return { owner: 1, body: s.slice(1) };
-  if (s[0] === "v") return { owner: 1 - Number(ctx?.state?.turn || 0), body: s.slice(1) };
-  return { owner: null, body: s };
+  let s = String(token || "");
+  const turn = Number(ctx?.state?.turn || 0);
+  if (s.startsWith("v▲")) return { owner: 0, body: localStripInlineOpponentMarker(s.slice(2)) };
+  if (s.startsWith("v△")) return { owner: 1, body: localStripInlineOpponentMarker(s.slice(2)) };
+  let owner = null;
+  if (s[0] === "▲") {
+    owner = 0;
+    s = s.slice(1);
+  } else if (s[0] === "△") {
+    owner = 1;
+    s = s.slice(1);
+  } else if (s[0] === "v") {
+    owner = 1 - turn;
+    s = s.slice(1);
+  }
+  if (localHasInlineOpponentMarker(s)) {
+    if (owner === null) owner = 1 - turn;
+    s = localStripInlineOpponentMarker(s);
+  }
+  return { owner, body: s };
 }
 
 function localNormalizeMoveText(text) {
@@ -4302,12 +4360,12 @@ function localPwcWillSwapCapturedPiece(pieces, capturedPiece, fromX, fromY, toX,
 function localPwcSwapNotationSuffix(ctx, owner, fromX, fromY, capturedPiece, includeOwnerPrefix = true) {
   if (!capturedPiece) return "";
   const prefix = includeOwnerPrefix ? localMovePrefixForOwner(ctx, owner) : "";
-  return `/${prefix}${localFormatSquarePieceNotation(fromX, fromY, capturedPiece.name)}`;
+  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, capturedPiece.name))}`;
 }
 
 function localRifleReturnNotationSuffix(fromX, fromY, returnPieceName, includeOwnerPrefix = false, owner = 0, ctx = null) {
   const prefix = includeOwnerPrefix ? localMovePrefixForOwner(ctx, owner) : "";
-  return `/${prefix}${localFormatSquarePieceNotation(fromX, fromY, returnPieceName)}`;
+  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, returnPieceName))}`;
 }
 
 function localMakeTakeMakeNotation(
@@ -4349,7 +4407,7 @@ function localMakeTakeMakeNotation(
       }
     }
   }
-  return `${prefix}${stepCoord}-${finalCoord}${dispName}${suffix}`;
+  return localComposeTokenWithOwnerPrefix(prefix, `${stepCoord}-${finalCoord}${dispName}${suffix}`);
 }
 
 function localIsTakeMakeActive(rules = {}) {
@@ -4453,7 +4511,7 @@ function localBuildTakeMakeContinuationSquares(
 
 function localMovePrefixForOwner(ctx, owner) {
   if (ctx?.state?.rules?.all_in_shogi && Number(owner) !== Number(ctx?.state?.turn)) {
-    return Number(owner) === 0 ? "v▲" : "v△";
+    return "v";
   }
   return Number(owner) === 0 ? "▲" : "△";
 }
@@ -4626,7 +4684,7 @@ function localMakeMoveNotation(ctx, owner, name, toX, toY, promote, isDrop, from
       suffix = "生";
     }
   }
-  return `${prefix}${coordStr}${dispName}${relativeStr}${suffix}`;
+  return localComposeTokenWithOwnerPrefix(prefix, `${coordStr}${dispName}${relativeStr}${suffix}`);
 }
 
 function localDropNeedsSuffix(ctx, owner, name, toX, toY, coordStr = null) {
@@ -19560,22 +19618,20 @@ function syncHistoryScrollToCurrent(rows = null) {
 
 function formatOpponentControlNotationForDisplay(notation, owner = null) {
   const s = String(notation || "");
-  if (!s.startsWith("v")) return s;
-  if (s.startsWith("v▲") || s.startsWith("v△")) return s;
-  const n = Number(owner);
-  if (n !== 0 && n !== 1) return s;
-  return `v${n === 0 ? "▲" : "△"}${s.slice(1)}`;
+  if (!s) return s;
+  if (localHasInlineOpponentMarker(s)) return s;
+  if (s.startsWith("v▲") || s.startsWith("v△") || s[0] === "v") {
+    return localInsertInlineOpponentMarker(s);
+  }
+  return s;
 }
 
 function formatReverseHistoryNotationForDisplay(notation, owner = null) {
   const s = String(notation || "");
   if (!s) return s;
-  if (s.startsWith("▲") || s.startsWith("△") || s.startsWith("v▲") || s.startsWith("v△")) return s;
+  if (s.startsWith("▲") || s.startsWith("△") || localHasInlineOpponentMarker(s)) return s;
   const n = Number(owner);
-  if (s.startsWith("v")) {
-    if (n !== 0 && n !== 1) return s;
-    return formatOpponentControlNotationForDisplay(s, n);
-  }
+  if (s.startsWith("v")) return formatOpponentControlNotationForDisplay(s, n);
   if (n !== 0 && n !== 1) return s;
   return `${n === 0 ? "▲" : "△"}${s}`;
 }
@@ -19687,14 +19743,17 @@ function formatReverseMoveLabel(move, prePieceMap, captureNameHint = "", options
   let ownerPrefix = "";
   if (owner === 0 || owner === 1) {
     if (allInShogi && (turn === 0 || turn === 1) && owner !== turn) {
-      ownerPrefix = owner === 0 ? "v▲" : "v△";
+      ownerPrefix = "v";
     } else {
       ownerPrefix = owner === 0 ? "▲" : "△";
     }
   }
   if (move.kind === "drop") {
     const neutralDrop = Number(move?.piece_owner) === -1 || Boolean(move?.neutral_piece);
-    return `${ownerPrefix}${coordText(move.to)}${neutralDrop ? "n" : ""}${displayNameForName(move.name)}打`;
+    return localComposeTokenWithOwnerPrefix(
+      ownerPrefix,
+      `${coordText(move.to)}${neutralDrop ? "n" : ""}${displayNameForName(move.name)}打`
+    );
   }
   if (move.kind === "move") {
     const reverseToText = move.from ? coordText(move.from) : "??";
@@ -19704,9 +19763,12 @@ function formatReverseMoveLabel(move, prePieceMap, captureNameHint = "", options
     if (captured?.name) {
       const capPosText = captured?.pos ? coordText(captured.pos) : "??";
       const capPieceText = `${Number(captured?.owner) === -1 ? "n" : ""}${displayNameForName(captured.name)}`;
-      return `${ownerPrefix}${reverseToText}${pieceLabel}${narazu}(+${capPosText}${capPieceText})`;
+      return localComposeTokenWithOwnerPrefix(
+        ownerPrefix,
+        `${reverseToText}${pieceLabel}${narazu}(+${capPosText}${capPieceText})`
+      );
     }
-    return `${ownerPrefix}${reverseToText}${pieceLabel}${narazu}`;
+    return localComposeTokenWithOwnerPrefix(ownerPrefix, `${reverseToText}${pieceLabel}${narazu}`);
   }
   return ownerPrefix + String(move.notation || "");
 }
