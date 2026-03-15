@@ -3292,6 +3292,14 @@ function localReplayPieceVariants(pieceText, includeBaseFallback = false, displa
   return variants;
 }
 
+function localReplayUsesStrictPieceMatch(pieceText, displayToName = null) {
+  const raw = String(pieceText || "").trim();
+  if (!raw) return false;
+  const mapped = localParsePieceTokenToName(raw, displayToName || localBuildDisplayToNameMap());
+  const name = String(mapped || raw);
+  return PROMOTED_NAMES.has(name);
+}
+
 function localParseReplayPiecePart(piecePartRaw) {
   let s = String(piecePartRaw || "").trim();
   s = s.replace(/\[I[^\]]*\]/g, "");
@@ -3571,8 +3579,11 @@ function localFindLegalByReplaySpec(ctx, spec, options = {}) {
   const moves = Array.isArray(ctx?.legal?.moves) ? ctx.legal.moves : [];
   if (moves.length <= 0) return null;
   const displayToName = options?.displayToName || null;
+  const strictPiece = localReplayUsesStrictPieceMatch(spec.pieceText, displayToName);
   const exactTargets = new Set(localReplayPieceVariants(spec.pieceText, false, displayToName));
-  const fallbackTargets = new Set(localReplayPieceVariants(spec.pieceText, true, displayToName));
+  const fallbackTargets = strictPiece
+    ? null
+    : new Set(localReplayPieceVariants(spec.pieceText, true, displayToName));
   const shared = moves.filter((mv) => {
     if (!mv || !mv.to) return false;
     if (spec.owner !== null && Number(mv.owner) !== Number(spec.owner)) return false;
@@ -3593,6 +3604,7 @@ function localFindLegalByReplaySpec(ctx, spec, options = {}) {
 
   const matchesExact = (mv) => exactTargets.has(localNormalizeReplayMatchPieceName(mv?.name));
   const matchesFallback = (mv) => {
+    if (!fallbackTargets) return false;
     const normalized = localNormalizeReplayMatchPieceName(mv?.name);
     return fallbackTargets.has(normalized) || fallbackTargets.has(localNormalizeReplayMatchPieceName(standardBaseName(normalized)));
   };
@@ -8874,19 +8886,24 @@ function localComputeLegalAll(ctx, options = {}) {
   const replayDisplayToName = options?.displayToName || null;
   const stopOnFirstReplayMatch =
     Boolean(options?.stopOnFirstReplayMatch) && Boolean(targetReplaySpec);
+  const replayStrictPiece =
+    targetReplaySpec?.pieceText ? localReplayUsesStrictPieceMatch(targetReplaySpec.pieceText, replayDisplayToName) : false;
   const replayPieceExact = targetReplaySpec?.pieceText
     ? new Set(localReplayPieceVariants(targetReplaySpec.pieceText, false, replayDisplayToName))
     : null;
   const replayPieceFallback = targetReplaySpec?.pieceText
-    ? new Set(localReplayPieceVariants(targetReplaySpec.pieceText, true, replayDisplayToName))
+    ? replayStrictPiece
+      ? null
+      : new Set(localReplayPieceVariants(targetReplaySpec.pieceText, true, replayDisplayToName))
     : null;
   const matchesReplayTargetRaw = (mv) => {
     if (!targetReplaySpec) return false;
     if (!localReplayMoveMatchesSpec(mv, targetReplaySpec)) return false;
-    if (!replayPieceExact || !replayPieceFallback) return true;
+    if (!replayPieceExact) return true;
     const nm = localNormalizeReplayMatchPieceName(mv?.name);
     if (!nm) return false;
     if (replayPieceExact.has(nm)) return true;
+    if (!replayPieceFallback) return false;
     if (replayPieceFallback.has(nm)) return true;
     const baseNm = localNormalizeReplayMatchPieceName(standardBaseName(nm));
     return replayPieceFallback.has(baseNm);
