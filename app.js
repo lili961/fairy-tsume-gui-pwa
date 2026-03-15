@@ -3889,6 +3889,7 @@ function localReplayMoveTextOnCurrent(ctx, targetText, options = {}) {
   const replaySpec = localParseReplayMoveSpec(ctx, targetText);
   const sourceHint = localParseReplaySourceHint(ctx, targetText);
   const fastHintMode = Boolean(options?.fastHintMode);
+  const allowStopOnFirstReplayMatch = !String(replaySpec?.relativeSuffix || "").trim();
   const allowFullFallback = options?.allowFullFallback !== false;
   const noTouch = Boolean(options?.noTouch);
   const replayApplyOptions = {
@@ -3926,7 +3927,7 @@ function localReplayMoveTextOnCurrent(ctx, targetText, options = {}) {
       targetMoveHint: hint,
       targetReplaySpec: replaySpec,
       displayToName: replayDisplayToName,
-      stopOnFirstReplayMatch: true,
+      stopOnFirstReplayMatch: allowStopOnFirstReplayMatch,
     });
     if (tryWithCurrentLegal()) return true;
   }
@@ -3939,7 +3940,7 @@ function localReplayMoveTextOnCurrent(ctx, targetText, options = {}) {
     ...replayComputeBaseOptions,
     targetReplaySpec: replaySpec,
     displayToName: replayDisplayToName,
-    stopOnFirstReplayMatch: true,
+    stopOnFirstReplayMatch: allowStopOnFirstReplayMatch,
   });
   return tryWithCurrentLegal();
 }
