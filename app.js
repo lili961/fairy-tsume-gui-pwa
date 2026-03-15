@@ -9466,13 +9466,111 @@ function localParseCompactAttrBody(rawBody, displayToName) {
   return { name: pieceName, attrs };
 }
 
+function localBuildHandPieceTokenCandidates(displayToName) {
+  const set = new Set();
+  if (displayToName?.entries) {
+    for (const [rawToken, mappedName] of displayToName.entries()) {
+      const token = String(rawToken || "").trim();
+      if (!token) continue;
+      if (mappedName === "__none__" || mappedName === "__empty__") continue;
+      if (token === "なし") continue;
+      if (/^\d+$/.test(token)) continue;
+      set.add(token);
+    }
+  }
+  for (const pieceName of Object.keys(LOCAL_PIECE_SPECS || {})) {
+    const token = String(pieceName || "").trim();
+    if (!token) continue;
+    set.add(token);
+  }
+  return Array.from(set).sort((a, b) => b.length - a.length);
+}
+
+function localFindLongestHandPieceTokenAt(text, start, candidates) {
+  const src = String(text || "");
+  const st = Number.isInteger(start) ? start : 0;
+  if (st < 0 || st >= src.length) return null;
+  for (const cand of candidates || []) {
+    const token = String(cand || "");
+    if (!token) continue;
+    const seg = src.slice(st, st + token.length);
+    if (!seg) continue;
+    if (seg === token) return token;
+    if (seg.toLowerCase() === token.toLowerCase()) return token;
+  }
+  return null;
+}
+
+function localSplitHandBodyParts(body, displayToName) {
+  const src = localNormalizeDigits(String(body || "").trim());
+  if (!src) return [];
+  const simpleParts = src.split(/\s+/).filter((v) => v.length > 0);
+  if (simpleParts.length > 1) return simpleParts;
+
+  const candidates = localBuildHandPieceTokenCandidates(displayToName);
+  const out = [];
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    while (i < n && /\s/.test(src[i])) i += 1;
+    if (i >= n) break;
+
+    let tokenText = "";
+    let consumed = 0;
+    const ch = src[i];
+    if (ch === "n" || ch === "N") {
+      const next = src[i + 1] || "";
+      if (next === "(" || next === "（") {
+        let j = i + 2;
+        while (j < n && src[j] !== ")" && src[j] !== "）") j += 1;
+        if (j < n) {
+          const inside = src.slice(i + 2, j).trim();
+          const mapped = localParsePieceTokenToName(inside, displayToName);
+          if (mapped && mapped !== "__none__" && mapped !== "__empty__") {
+            tokenText = src.slice(i, j + 1);
+            consumed = j + 1 - i;
+          }
+        }
+      }
+      if (!consumed) {
+        const neutralBase = localFindLongestHandPieceTokenAt(src, i + 1, candidates);
+        if (neutralBase) {
+          tokenText = `${src[i]}${src.slice(i + 1, i + 1 + neutralBase.length)}`;
+          consumed = neutralBase.length + 1;
+        }
+      }
+    }
+
+    if (!consumed) {
+      const base = localFindLongestHandPieceTokenAt(src, i, candidates);
+      if (base) {
+        tokenText = src.slice(i, i + base.length);
+        consumed = base.length;
+      }
+    }
+
+    if (!consumed) {
+      const fallback = src.slice(i).trim();
+      if (fallback) out.push(fallback);
+      break;
+    }
+
+    let j = i + consumed;
+    while (j < n && /\d/.test(src[j])) j += 1;
+    if (j > i + consumed) tokenText += src.slice(i + consumed, j);
+    out.push(tokenText);
+    i = j;
+  }
+  return out.length > 0 ? out : simpleParts;
+}
+
 function localParseHandLineToPieces(line, displayToName) {
   const m = String(line || "").match(/^\s*(?:先手の持駒|後手の持駒|持駒)\s*[:：]\s*(.*?)\s*$/);
   if (!m) return null;
   const body = m[1] || "";
   if (!body || body === "なし") return [];
   const out = [];
-  const parts = body.split(/\s+/).filter((v) => v.length > 0);
+  const parts = localSplitHandBodyParts(body, displayToName);
   for (const partRaw of parts) {
     const part = localNormalizeDigits(partRaw);
     const mm = part.match(/^(.*?)(\d+)?$/);
