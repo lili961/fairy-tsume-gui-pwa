@@ -3506,6 +3506,48 @@ function localReplayMoveMatchesSpec(mv, spec) {
   return true;
 }
 
+function localReplayRelativeSuffixMatchesTag(specSuffixRaw, tagRaw) {
+  const specSuffix = String(specSuffixRaw || "").trim();
+  const tag = String(tagRaw || "").trim();
+  if (!specSuffix) return true;
+  if (!tag) return false;
+  if (specSuffix === tag) return true;
+  if ((specSuffix === "右" || specSuffix === "左") && tag.startsWith(specSuffix)) return true;
+  if ((specSuffix === "上" || specSuffix === "寄" || specSuffix === "引") && tag.endsWith(specSuffix)) return true;
+  return false;
+}
+
+function localPickReplayByRelativeGeometry(moves, spec) {
+  if (!spec?.relativeSuffix) return null;
+  const moveCandidates = (Array.isArray(moves) ? moves : []).filter(
+    (mv) => mv?.kind === "move" && mv?.from && mv?.to
+  );
+  if (moveCandidates.length <= 0) return null;
+  if (moveCandidates.length === 1) return moveCandidates[0];
+
+  const owner = Number(moveCandidates[0]?.owner);
+  const dest = { x: Number(moveCandidates[0].to.x), y: Number(moveCandidates[0].to.y) };
+  const fromCandidates = moveCandidates.map((mv) => ({
+    x: Number(mv.from.x),
+    y: Number(mv.from.y),
+  }));
+  const matched = [];
+  for (const mv of moveCandidates) {
+    const tag = localResolveMoveAmbiguity(
+      owner,
+      { x: Number(mv.from.x), y: Number(mv.from.y) },
+      dest,
+      fromCandidates,
+      String(mv?.name || "")
+    );
+    if (localReplayRelativeSuffixMatchesTag(spec.relativeSuffix, tag)) {
+      matched.push(mv);
+    }
+  }
+  if (matched.length > 0) return matched[0];
+  return null;
+}
+
 function localPickReplayLegalCandidate(ctx, moves, spec) {
   if (!Array.isArray(moves) || moves.length <= 0) return null;
   let candidates = moves.slice();
@@ -3516,6 +3558,8 @@ function localPickReplayLegalCandidate(ctx, moves, spec) {
     if (matched.length > 0) {
       candidates = matched;
     } else {
+      const byGeometry = localPickReplayByRelativeGeometry(candidates, spec);
+      if (byGeometry) return byGeometry;
       return null;
     }
   }
