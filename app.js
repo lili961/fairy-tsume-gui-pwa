@@ -3297,12 +3297,45 @@ function localParseReplayPiecePart(piecePartRaw) {
   s = s.replace(/\[I[^\]]*\]/g, "");
   s = s.replace(/転/g, "");
   let relativeSuffix = "";
-  for (const tag of LOCAL_REPLAY_RELATIVE_TAGS) {
-    if (s.endsWith(tag)) {
-      relativeSuffix = tag;
-      s = s.slice(0, -tag.length);
-      break;
+  let explicitNarazu = false;
+  let promote = false;
+  let isDrop = false;
+  let guard = 0;
+  // 末尾トークンを順に剥がす。順序は「銀左不成」「銀不成左」どちらにも対応。
+  while (s && guard < 32) {
+    guard += 1;
+    let consumed = false;
+    if (!relativeSuffix) {
+      for (const tag of LOCAL_REPLAY_RELATIVE_TAGS) {
+        if (s.endsWith(tag)) {
+          relativeSuffix = tag;
+          s = s.slice(0, -tag.length);
+          consumed = true;
+          break;
+        }
+      }
     }
+    if (!consumed && s.endsWith("不成")) {
+      explicitNarazu = true;
+      s = s.slice(0, -2);
+      consumed = true;
+    }
+    if (!consumed && s.endsWith("生")) {
+      explicitNarazu = true;
+      s = s.slice(0, -1);
+      consumed = true;
+    }
+    if (!consumed && s.endsWith("成")) {
+      if (!explicitNarazu) promote = true;
+      s = s.slice(0, -1);
+      consumed = true;
+    }
+    if (!consumed && s.endsWith("打")) {
+      isDrop = true;
+      s = s.slice(0, -1);
+      consumed = true;
+    }
+    if (!consumed) break;
   }
   if (!relativeSuffix && s && /[右左直寄引上]$/.test(s)) {
     relativeSuffix = s.slice(-1);
@@ -3311,13 +3344,6 @@ function localParseReplayPiecePart(piecePartRaw) {
   while (s && /[右左直寄引上]$/.test(s)) {
     s = s.slice(0, -1);
   }
-  const explicitNarazu = s.includes("不成") || s.includes("生");
-  const promote = s.includes("成") && !explicitNarazu;
-  const isDrop = s.includes("打");
-  s = s.replace(/不成/g, "");
-  s = s.replace(/生/g, "");
-  s = s.replace(/成/g, "");
-  s = s.replace(/打/g, "");
   return {
     pieceText: s.trim(),
     relativeSuffix,
@@ -3425,6 +3451,33 @@ function localParseReplayMoveSpec(ctx, targetText) {
   };
 }
 
+function localExtractReplayRelativeSuffixFromNotation(targetText) {
+  let token = localStripReplayOwnerPrefixEachSegment(String(targetText || "").trim());
+  token = localNormalizeDigits(token);
+  token = localExtractNeutralPieceNotationToken(token).text;
+  token = token.replace(/[。,，,]+$/g, "");
+  token = token.replace(/\(.*?\)/g, "");
+  token = token.replace(/\[I[^\]]*\]/g, "");
+  if (token.includes("/")) {
+    const parts = token.split("/", 2);
+    token = String(parts[0] || "").trim();
+  }
+  if (!token) return "";
+
+  let piecePart = "";
+  const takeMakeMatch = token.match(/^((?:同)|(?:[1-9][1-9]))\s*-\s*([1-9])([1-9])(.*)$/);
+  if (takeMakeMatch) {
+    piecePart = String(takeMakeMatch[4] || "");
+  } else if (token.startsWith("同")) {
+    piecePart = token.slice(1);
+  } else if (token.length >= 3) {
+    piecePart = token.slice(2);
+  } else {
+    return "";
+  }
+  return String(localParseReplayPiecePart(piecePart)?.relativeSuffix || "");
+}
+
 function localMatchReplayMoveRebirth(mv, rebirth) {
   const mr =
     mv?.rebirth && localInBoard(mv.rebirth.x, mv.rebirth.y)
@@ -3458,10 +3511,13 @@ function localPickReplayLegalCandidate(ctx, moves, spec) {
   let candidates = moves.slice();
   if (spec?.relativeSuffix) {
     const matched = candidates.filter((mv) => {
-      const parsed = localParseReplayMoveSpec(ctx, mv?.notation || "");
-      return parsed?.relativeSuffix === spec.relativeSuffix;
+      return localExtractReplayRelativeSuffixFromNotation(mv?.notation || "") === spec.relativeSuffix;
     });
-    if (matched.length > 0) candidates = matched;
+    if (matched.length > 0) {
+      candidates = matched;
+    } else {
+      return null;
+    }
   }
   return candidates[0] || null;
 }
