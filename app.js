@@ -96,6 +96,7 @@ const ui = {
   btnRuleDialogOpen: getEl("btnRuleDialogOpen"),
   btnMiscDialogOpen: getEl("btnMiscDialogOpen"),
   btnIoDialogOpen: getEl("btnIoDialogOpen"),
+  btnHelpDialogOpen: getEl("btnHelpDialogOpen"),
   btnIoDialogClose: getEl("btnIoDialogClose"),
   btnIoUpload: getEl("btnIoUpload"),
   btnIoDownload: getEl("btnIoDownload"),
@@ -115,9 +116,11 @@ const ui = {
   btnExportKifu: getEl("btnExportKifu"),
   ruleDialog: getEl("ruleDialog"),
   miscDialog: getEl("miscDialog"),
+  helpDialog: getEl("helpDialog"),
   miscSettingList: getEl("miscSettingList"),
   btnMiscApply: getEl("btnMiscApply"),
   btnMiscDialogClose: getEl("btnMiscDialogClose"),
+  btnHelpDialogClose: getEl("btnHelpDialogClose"),
   ruleNameText: getEl("ruleNameText"),
   ruleStrategySelect: getEl("ruleStrategySelect"),
   ruleObjectiveSelect: getEl("ruleObjectiveSelect"),
@@ -1105,6 +1108,15 @@ function openMiscDialog() {
   if (!ui.miscDialog) return;
   renderMiscSettingInputs();
   if (!ui.miscDialog.open) ui.miscDialog.showModal();
+}
+
+function closeHelpDialog() {
+  if (ui.helpDialog?.open) ui.helpDialog.close();
+}
+
+function openHelpDialog() {
+  if (!ui.helpDialog) return;
+  if (!ui.helpDialog.open) ui.helpDialog.showModal();
 }
 
 function closeCustomFairyDialog() {
@@ -10987,8 +10999,8 @@ function localBuildKifuText(ctx) {
         const shown = `${info.neutral && shouldPrefixNeutralForExport(baseName) ? "n" : ""}${disp(baseName)}`;
         return c > 1 ? `${shown}${c}` : shown;
       })
-      .join(" ");
-    return `持駒：${body}${body ? " " : ""}`;
+      .join("");
+    return `持駒：${body}`;
   };
 
   lines.push(handLine(1));
@@ -21713,6 +21725,11 @@ async function boot() {
       openIoDialog();
     });
   }
+  if (ui.btnHelpDialogOpen) {
+    ui.btnHelpDialogOpen.addEventListener("click", () => {
+      openHelpDialog();
+    });
+  }
   if (ui.ioDialog) {
     ui.ioDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -21804,6 +21821,12 @@ async function boot() {
       closeMiscDialog();
     });
   }
+  if (ui.helpDialog) {
+    ui.helpDialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeHelpDialog();
+    });
+  }
   if (ui.customFairyDialog) {
     ui.customFairyDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -21824,6 +21847,11 @@ async function boot() {
   if (ui.btnMiscDialogClose) {
     ui.btnMiscDialogClose.addEventListener("click", () => {
       closeMiscDialog();
+    });
+  }
+  if (ui.btnHelpDialogClose) {
+    ui.btnHelpDialogClose.addEventListener("click", () => {
+      closeHelpDialog();
     });
   }
   if (ui.btnCustomFairyClose) {
