@@ -19442,7 +19442,22 @@ function renderHistoryList() {
   const focusId = resolveHistoryTargetNodeId();
   const current = rows.find((r) => r.isCurrent);
   if (ui.historyInfo) {
-    ui.historyInfo.textContent = current ? `現在：${current.ply}手` : "現在：-";
+    if (!current) {
+      ui.historyInfo.textContent = "現在：-";
+    } else {
+      const totalPly = rows.reduce((max, row) => {
+        if (!row || row.isVariation || localIsTerminalResultText(row.moveStr)) return max;
+        const p = Number.parseInt(row.ply, 10);
+        if (!Number.isFinite(p) || p < 0) return max;
+        return Math.max(max, p);
+      }, 0);
+      const currentRawPly = Number.parseInt(current.ply, 10);
+      const currentPly = Number.isFinite(currentRawPly) && currentRawPly >= 0 ? currentRawPly : 0;
+      const displayCurrentPly = localIsTerminalResultText(current.moveStr)
+        ? Math.max(0, currentPly - 1)
+        : currentPly;
+      ui.historyInfo.textContent = `現在：${displayCurrentPly}手／${totalPly}手`;
+    }
   }
   updateHistoryActionButtons();
 
