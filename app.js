@@ -3901,7 +3901,8 @@ function localReplayMoveTextOnCurrent(ctx, targetText, options = {}) {
   const replaySpec = localParseReplayMoveSpec(ctx, targetText);
   const sourceHint = localParseReplaySourceHint(ctx, targetText);
   const fastHintMode = Boolean(options?.fastHintMode);
-  const allowStopOnFirstReplayMatch = !String(replaySpec?.relativeSuffix || "").trim();
+  const allowStopOnFirstReplayMatch =
+    !String(replaySpec?.relativeSuffix || "").trim() && !replaySpec?.rebirth;
   const allowFullFallback = options?.allowFullFallback !== false;
   const noTouch = Boolean(options?.noTouch);
   const replayApplyOptions = {
