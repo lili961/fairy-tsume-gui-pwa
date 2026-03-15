@@ -3498,6 +3498,7 @@ function localMatchReplayMoveRebirth(mv, rebirth) {
 
 function localReplayMoveMatchesSpec(mv, spec) {
   if (!mv || !spec) return false;
+  if (spec.isDrop && mv.kind !== "drop") return false;
   if (spec.owner !== null && Number(mv.owner) !== Number(spec.owner)) return false;
   if (spec.neutralPiece === true && !Boolean(mv.neutral_piece)) return false;
   if (!mv.to) return false;
@@ -3610,14 +3611,16 @@ function localFindLegalByReplaySpec(ctx, spec, options = {}) {
   };
 
   const moveCandidates = shared.filter((mv) => mv.kind === "move");
-  const exactMoves = moveCandidates.filter(matchesExact);
-  const fallbackMoves = moveCandidates.filter(matchesFallback);
-  const pickedMove = localPickReplayLegalCandidate(
-    ctx,
-    exactMoves.length > 0 ? exactMoves : fallbackMoves,
-    spec
-  );
-  if (pickedMove) return pickedMove;
+  if (!spec.isDrop) {
+    const exactMoves = moveCandidates.filter(matchesExact);
+    const fallbackMoves = moveCandidates.filter(matchesFallback);
+    const pickedMove = localPickReplayLegalCandidate(
+      ctx,
+      exactMoves.length > 0 ? exactMoves : fallbackMoves,
+      spec
+    );
+    if (pickedMove) return pickedMove;
+  }
 
   const destinationOccupied = Boolean(localFindPiece(ctx?.state, spec.toX, spec.toY));
   if (!spec.isDrop && destinationOccupied) return null;
@@ -9742,10 +9745,13 @@ function localIsSenteHandLineText(line) {
 function localFormatProblemNameForRuleName(strategy, objective) {
   const s = String(strategy || "");
   const o = String(objective || "");
-  if (o === "詰") return s;
-  const stripTsumeStrategies = new Set(["協力詰", "最善詰", "最悪詰", "悪魔詰", "天使詰"]);
-  const base = stripTsumeStrategies.has(s) && s.endsWith("詰") ? s.slice(0, -1) : s;
-  return `${base}${o}`;
+  if (s === "詰将棋") {
+    return o === "詰" ? "詰将棋" : o;
+  }
+  if (o === "詰" && s.endsWith("詰")) {
+    return s;
+  }
+  return `${s}${o}`;
 }
 
 function localRuleLabelDefsFromMeta(meta) {
