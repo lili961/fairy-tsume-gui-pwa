@@ -744,6 +744,8 @@ body[data-mode="edit"] #logPanel {
 .history-nav button {
   min-height: 24px;
   padding: 2px 0;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 
 .history-nav button.active {
