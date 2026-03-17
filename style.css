@@ -13,6 +13,7 @@
   --last-to: #f5c38d;
   --cell-w: 48px;
   --cell-h: 54px;
+  --piece-font-size: clamp(22px, calc(var(--cell-w) * 0.77), 37px);
   --axis-h: 20px;
   --axis-w: 24px;
   --side-play-width: 340px;
@@ -639,7 +640,7 @@ button:disabled {
   position: relative;
   z-index: 4;
   font-family: "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif;
-  font-size: 37px;
+  font-size: var(--piece-font-size);
   font-weight: 400;
   line-height: 1;
 }
