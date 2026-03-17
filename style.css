@@ -282,7 +282,7 @@ button:disabled {
 
 .hand-piece {
   font-family: "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif;
-  font-size: 37px;
+  font-size: var(--piece-font-size);
   font-weight: 400;
   line-height: 1;
 }
@@ -474,7 +474,7 @@ button:disabled {
 
 .piecebox-item .piecebox-text {
   font-family: "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif;
-  font-size: 37px;
+  font-size: var(--piece-font-size);
   font-weight: 400;
   line-height: 1;
 }
