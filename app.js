@@ -196,7 +196,7 @@ const REVERSE_IO_HEADER = "F-TSUME-REVERSE-V1";
 const REVERSE_IO_KIND = "f-tsume-reverse-kifu-v1";
 const REVERSE_IO_EMBED_PREFIX = "F-TSUME-REVERSE-EMBED:";
 const REVERSE_PLAIN_MARKER_LINE = "逆算棋譜";
-const REVERSE_WORKER_SCRIPT = "./reverse_worker.js?v=20260314j";
+const REVERSE_WORKER_SCRIPT = "./reverse_worker.js?v=20260318a";
 const REVERSE_WORKER_TIMEOUT_MS = 5000;
 const REVERSE_PROFILE_LOG_ENABLED = true;
 const REVERSE_PRE_LEGAL_CACHE_VERSION = "20260314j";
@@ -15988,7 +15988,13 @@ function reverseEnsureHistoryTreeBase() {
   if (!state || state.mode !== "play") return null;
   const inferred = reverseInferForwardContextFromForwardHistory();
   const rootForwardPlyRaw = Number.parseInt(inferred?.current_forward_ply, 10);
-  const rootForwardPly = Number.isFinite(rootForwardPlyRaw) && rootForwardPlyRaw >= 0 ? rootForwardPlyRaw : 0;
+  const ruleProblemPlyRaw = Number.parseInt(state?.rules?.problem_ply, 10);
+  const rootForwardPly =
+    Number.isFinite(rootForwardPlyRaw) && rootForwardPlyRaw >= 0
+      ? rootForwardPlyRaw
+      : Number.isFinite(ruleProblemPlyRaw) && ruleProblemPlyRaw >= 0
+      ? ruleProblemPlyRaw
+      : 0;
   const startTurn = reverseNormalizeStartTurn(inferred?.start_turn, state?.turn);
   const rootId = "r_root";
   reverseHistoryTree = {
@@ -18076,6 +18082,12 @@ function normalizeReverseHistoryTreePayload(payload) {
   const rootNodeForwardRaw = Number.parseInt(rootNode?.forward_ply, 10);
   if (rootForwardPly === null && Number.isFinite(rootNodeForwardRaw) && rootNodeForwardRaw >= 0) {
     rootForwardPly = rootNodeForwardRaw;
+  }
+  if (rootForwardPly === null) {
+    const ruleProblemPlyRaw = Number.parseInt(rootNode?.state?.rules?.problem_ply, 10);
+    if (Number.isFinite(ruleProblemPlyRaw) && ruleProblemPlyRaw >= 0) {
+      rootForwardPly = ruleProblemPlyRaw;
+    }
   }
   if (rootForwardPly === null) rootForwardPly = 0;
   if (rootNode && !(Number.isFinite(rootNodeForwardRaw) && rootNodeForwardRaw >= 0)) {
@@ -20837,7 +20849,6 @@ function reverseCirceNoHandCaptureNameCandidates(pieces, capturedOwner, captureP
 function reverseComputeOnePlyCandidates(options = {}) {
   const opt = options && typeof options === "object" ? options : {};
   const relaxPredecessorCheckPolicy = Boolean(opt.relaxPredecessorCheckPolicy);
-  const skipDefenderCheckRequirement = Boolean(opt.skipDefenderCheckRequirement);
   const profile = {
     _start_ms: reverseNowMs(),
     legal_compute_ms: 0,
@@ -20865,39 +20876,34 @@ function reverseComputeOnePlyCandidates(options = {}) {
   const typeAttrs = state?.type_attrs && typeof state.type_attrs === "object" ? cloneJson(state.type_attrs) : {};
   const currentTurn = Number(state?.turn || 0);
   const prevTurn = currentTurn === 0 ? 1 : 0;
-  const reverseCtx = reverseResolveComputeContext();
-  const reverseStartTurn = reverseNormalizeStartTurn(reverseCtx?.start_turn, state?.turn);
-  const reverseCurrentForwardPlyRaw = Number.parseInt(reverseCtx?.current_forward_ply, 10);
-  const reverseCurrentForwardPly =
-    Number.isFinite(reverseCurrentForwardPlyRaw) && reverseCurrentForwardPlyRaw >= 0
-      ? reverseCurrentForwardPlyRaw
-      : null;
-  const reverseNodePlyRaw = Number.parseInt(reverseCurrentNode()?.ply, 10);
+  const reverseNode = reverseCurrentNode();
+  const reverseNodePlyRaw = Number.parseInt(reverseNode?.ply, 10);
   const reverseNodePly = Number.isFinite(reverseNodePlyRaw) && reverseNodePlyRaw >= 0 ? reverseNodePlyRaw : 0;
-  // 既知の本譜範囲(root_forward_ply > 0)では履歴整合の制約を掛けるが、
-  // 開始局面(0手)よりさらに前へ逆算する探索では制約を外して候補を拾う。
-  const isBeforeOrAtKnownRoot = Number.isFinite(reverseCurrentForwardPly) && Number(reverseCurrentForwardPly) <= 0;
-  // 逆算を1手以上進めた先では「探索木を拡張中」とみなし、履歴整合の厳格制約を外す。
-  const isReverseTreeExpansion = reverseNodePly > 0;
-  const relaxForwardHistoryGuards = isBeforeOrAtKnownRoot || isReverseTreeExpansion;
+  const nodeForwardPlyRaw = Number.parseInt(reverseNode?.forward_ply, 10);
+  let currentForwardPly = Number.isFinite(nodeForwardPlyRaw) && nodeForwardPlyRaw >= 0 ? nodeForwardPlyRaw : null;
+  if (currentForwardPly === null) {
+    const ruleProblemPlyRaw = Number.parseInt(rules?.problem_ply, 10);
+    if (Number.isFinite(ruleProblemPlyRaw) && ruleProblemPlyRaw >= 0) {
+      currentForwardPly = Math.max(0, ruleProblemPlyRaw - reverseNodePly);
+    }
+  }
   // 逆算 pre局面でも「直前着手側(=非手番側)が王手状態」は通常は王手放置になるため除外する。
   const enforceNoCheckedPreviousMoverKing =
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_check_on_self);
   const reverseObjective = String(rules?.objective || "詰");
   const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
-  const isReceiverFirstOpeningReverse =
-    Number(prevTurn) === 1 &&
-    reverseStartTurn === 1 &&
-    (reverseNodePly === 0 || reverseCurrentForwardPly === 1);
+  // 受先の初手逆算例外:
+  // 逆算後に規定手数の開始局面へ到達する手(=現在forward手数が1)のみ、受方王手必須を外す。
+  const allowUncheckedDefenderAtOpening =
+    Number(prevTurn) === 1 && Number.isFinite(currentForwardPly) && Number(currentForwardPly) === 1;
   const enforceCheckedDefenderBeforeDefenderMove =
     requireDefenderCheckedBeforeDefenderMove &&
-    !skipDefenderCheckRequirement &&
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_sente_non_check) &&
     !Boolean(rules?.allow_check_on_self) &&
     Number(prevTurn) === 1 &&
-    !isReceiverFirstOpeningReverse;
+    !allowUncheckedDefenderAtOpening;
   const predecessorPolicyKey = [
     enforceNoCheckedPreviousMoverKing ? "pmok" : "pm__",
     enforceCheckedDefenderBeforeDefenderMove ? "def1" : "def_",
@@ -20930,7 +20936,6 @@ function reverseComputeOnePlyCandidates(options = {}) {
   const results = [];
   const predecessorLegalCache = new Map();
   const rulesTypeKey = reverseBuildRulesTypeQuickKey(rules, typeAttrs);
-  const hasKnownForwardPly = Number.isFinite(reverseCurrentForwardPly) && reverseCurrentForwardPly > 0;
   let evalCount = 0;
   const evalLimit = 9000;
   let limitReached = false;
@@ -21774,18 +21779,6 @@ function reverseComputeOnePlyCandidates(options = {}) {
         }
       }
     }
-  }
-
-  if (
-    results.length <= 0 &&
-    enforceCheckedDefenderBeforeDefenderMove &&
-    !skipDefenderCheckRequirement &&
-    !hasKnownForwardPly
-  ) {
-    return reverseComputeOnePlyCandidates({
-      ...opt,
-      skipDefenderCheckRequirement: true,
-    });
   }
 
   results.sort((a, b) => String(a?.label || "").localeCompare(String(b?.label || ""), "ja"));

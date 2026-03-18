@@ -1,6 +1,6 @@
 "use strict";
 
-importScripts("./app.js?v=20260314j");
+importScripts("./app.js?v=20260318a");
 
 self.addEventListener("message", (ev) => {
   const data = ev?.data && typeof ev.data === "object" ? ev.data : null;
@@ -20,6 +20,7 @@ self.addEventListener("message", (ev) => {
     sessionId = String(data.session_id || "worker");
     revision = Number(data.revision || 0);
     state = data.state;
+    displayNames = data.display_names && typeof data.display_names === "object" ? data.display_names : {};
     playSubMode = "reverse";
     reverseComputeContextOverride =
       data.reverse_context && typeof data.reverse_context === "object"
