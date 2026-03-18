@@ -20874,8 +20874,27 @@ function reverseComputeOnePlyCandidates(options = {}) {
   }
   const rules = state?.rules && typeof state.rules === "object" ? cloneJson(state.rules) : {};
   const typeAttrs = state?.type_attrs && typeof state.type_attrs === "object" ? cloneJson(state.type_attrs) : {};
-  const currentTurn = Number(state?.turn || 0);
-  const prevTurn = currentTurn === 0 ? 1 : 0;
+  const reverseCtx = reverseResolveComputeContext();
+  const reverseStartTurn = reverseNormalizeStartTurn(reverseCtx?.start_turn, state?.turn);
+  const flowForwardPlyRaw = Number.parseInt(reverseCtx?.current_forward_ply, 10);
+  const flowForwardPly = Number.isFinite(flowForwardPlyRaw) && flowForwardPlyRaw >= 0 ? flowForwardPlyRaw : null;
+  const stateTurn = Number(state?.turn || 0);
+  const currentTurn =
+    Number.isFinite(flowForwardPly) && flowForwardPly >= 0
+      ? (reverseStartTurn ^ (Number(flowForwardPly) & 1)) === 1
+        ? 1
+        : 0
+      : stateTurn === 1
+      ? 1
+      : 0;
+  const prevTurn =
+    Number.isFinite(flowForwardPly) && flowForwardPly > 0
+      ? (reverseStartTurn ^ ((Number(flowForwardPly) - 1) & 1)) === 1
+        ? 1
+        : 0
+      : currentTurn === 0
+      ? 1
+      : 0;
   const reverseNode = reverseCurrentNode();
   const reverseNodePlyRaw = Number.parseInt(reverseNode?.ply, 10);
   const reverseNodePly = Number.isFinite(reverseNodePlyRaw) && reverseNodePlyRaw >= 0 ? reverseNodePlyRaw : 0;
