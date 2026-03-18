@@ -20870,13 +20870,15 @@ function reverseComputeOnePlyCandidates(options = {}) {
     Number.isFinite(reverseCurrentForwardPlyRaw) && reverseCurrentForwardPlyRaw >= 0
       ? reverseCurrentForwardPlyRaw
       : null;
-  const isOpeningReverse = reverseCurrentForwardPly === 1;
+  // 既知の本譜範囲(root_forward_ply > 0)では履歴整合の制約を掛けるが、
+  // 開始局面(0手)よりさらに前へ逆算する探索では制約を外して候補を拾う。
+  const isBeforeOrAtKnownRoot =
+    Number.isFinite(reverseCurrentForwardPly) && Number(reverseCurrentForwardPly) <= 0;
   // 逆算 pre局面でも「直前着手側(=非手番側)が王手状態」は通常は王手放置になるため除外する。
-  // ただし初期局面(開始局面)へ戻る 1 手逆算では「直前手」が存在しないため、この制約を適用しない。
   const enforceNoCheckedPreviousMoverKing =
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_check_on_self) &&
-    !isOpeningReverse;
+    !isBeforeOrAtKnownRoot;
   const reverseObjective = String(rules?.objective || "詰");
   const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
   const isReceiverFirstOpeningReverse =
@@ -20887,6 +20889,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
     !Boolean(rules?.allow_sente_non_check) &&
     !Boolean(rules?.allow_check_on_self) &&
     Number(prevTurn) === 1 &&
+    !isBeforeOrAtKnownRoot &&
     !isReceiverFirstOpeningReverse;
   const predecessorPolicyKey = [
     enforceNoCheckedPreviousMoverKing ? "pmok" : "pm__",
