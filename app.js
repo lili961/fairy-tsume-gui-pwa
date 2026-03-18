@@ -20189,6 +20189,7 @@ function ensureReverseMovesForCurrentState() {
           session_id: String(sessionId || ""),
           revision: Number(revision || 0),
           state: cloneJson(state),
+          display_names: cloneJson(displayNames && typeof displayNames === "object" ? displayNames : {}),
           reverse_context: reverseBuildWorkerContextSnapshot(),
         });
         return;
@@ -20893,7 +20894,6 @@ function reverseComputeOnePlyCandidates(options = {}) {
     !Boolean(rules?.allow_sente_non_check) &&
     !Boolean(rules?.allow_check_on_self) &&
     Number(prevTurn) === 1 &&
-    !relaxForwardHistoryGuards &&
     !isReceiverFirstOpeningReverse;
   const predecessorPolicyKey = [
     enforceNoCheckedPreviousMoverKing ? "pmok" : "pm__",
