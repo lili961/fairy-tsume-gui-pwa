@@ -20837,6 +20837,7 @@ function reverseCirceNoHandCaptureNameCandidates(pieces, capturedOwner, captureP
 function reverseComputeOnePlyCandidates(options = {}) {
   const opt = options && typeof options === "object" ? options : {};
   const relaxPredecessorCheckPolicy = Boolean(opt.relaxPredecessorCheckPolicy);
+  const skipDefenderCheckRequirement = Boolean(opt.skipDefenderCheckRequirement);
   const profile = {
     _start_ms: reverseNowMs(),
     legal_compute_ms: 0,
@@ -20882,8 +20883,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
   // 逆算 pre局面でも「直前着手側(=非手番側)が王手状態」は通常は王手放置になるため除外する。
   const enforceNoCheckedPreviousMoverKing =
     !relaxPredecessorCheckPolicy &&
-    !Boolean(rules?.allow_check_on_self) &&
-    !relaxForwardHistoryGuards;
+    !Boolean(rules?.allow_check_on_self);
   const reverseObjective = String(rules?.objective || "詰");
   const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
   const isReceiverFirstOpeningReverse =
@@ -20892,6 +20892,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
     (reverseNodePly === 0 || reverseCurrentForwardPly === 1);
   const enforceCheckedDefenderBeforeDefenderMove =
     requireDefenderCheckedBeforeDefenderMove &&
+    !skipDefenderCheckRequirement &&
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_sente_non_check) &&
     !Boolean(rules?.allow_check_on_self) &&
@@ -20929,6 +20930,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
   const results = [];
   const predecessorLegalCache = new Map();
   const rulesTypeKey = reverseBuildRulesTypeQuickKey(rules, typeAttrs);
+  const hasKnownForwardPly = Number.isFinite(reverseCurrentForwardPly) && reverseCurrentForwardPly > 0;
   let evalCount = 0;
   const evalLimit = 9000;
   let limitReached = false;
@@ -21772,6 +21774,18 @@ function reverseComputeOnePlyCandidates(options = {}) {
         }
       }
     }
+  }
+
+  if (
+    results.length <= 0 &&
+    enforceCheckedDefenderBeforeDefenderMove &&
+    !skipDefenderCheckRequirement &&
+    !hasKnownForwardPly
+  ) {
+    return reverseComputeOnePlyCandidates({
+      ...opt,
+      skipDefenderCheckRequirement: true,
+    });
   }
 
   results.sort((a, b) => String(a?.label || "").localeCompare(String(b?.label || ""), "ja"));
