@@ -20870,7 +20870,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
     Number.isFinite(reverseCurrentForwardPlyRaw) && reverseCurrentForwardPlyRaw >= 0
       ? reverseCurrentForwardPlyRaw
       : null;
-  const reverseNodePlyRaw = Number.parseInt(reverseCurrentHistoryNode()?.ply, 10);
+  const reverseNodePlyRaw = Number.parseInt(reverseCurrentNode()?.ply, 10);
   const reverseNodePly = Number.isFinite(reverseNodePlyRaw) && reverseNodePlyRaw >= 0 ? reverseNodePlyRaw : 0;
   // 既知の本譜範囲(root_forward_ply > 0)では履歴整合の制約を掛けるが、
   // 開始局面(0手)よりさらに前へ逆算する探索では制約を外して候補を拾う。
