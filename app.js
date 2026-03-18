@@ -20887,7 +20887,9 @@ function reverseComputeOnePlyCandidates(options = {}) {
   const reverseObjective = String(rules?.objective || "詰");
   const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
   const isReceiverFirstOpeningReverse =
-    Number(prevTurn) === 1 && reverseStartTurn === 1 && reverseCurrentForwardPly === 1;
+    Number(prevTurn) === 1 &&
+    reverseStartTurn === 1 &&
+    (reverseNodePly === 0 || reverseCurrentForwardPly === 1);
   const enforceCheckedDefenderBeforeDefenderMove =
     requireDefenderCheckedBeforeDefenderMove &&
     !relaxPredecessorCheckPolicy &&
