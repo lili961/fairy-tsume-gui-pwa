@@ -96,7 +96,6 @@ const ui = {
   btnRuleDialogOpen: getEl("btnRuleDialogOpen"),
   btnMiscDialogOpen: getEl("btnMiscDialogOpen"),
   btnIoDialogOpen: getEl("btnIoDialogOpen"),
-  btnHelpDialogOpen: getEl("btnHelpDialogOpen"),
   btnIoDialogClose: getEl("btnIoDialogClose"),
   btnIoUpload: getEl("btnIoUpload"),
   btnIoDownload: getEl("btnIoDownload"),
@@ -116,11 +115,9 @@ const ui = {
   btnExportKifu: getEl("btnExportKifu"),
   ruleDialog: getEl("ruleDialog"),
   miscDialog: getEl("miscDialog"),
-  helpDialog: getEl("helpDialog"),
   miscSettingList: getEl("miscSettingList"),
   btnMiscApply: getEl("btnMiscApply"),
   btnMiscDialogClose: getEl("btnMiscDialogClose"),
-  btnHelpDialogClose: getEl("btnHelpDialogClose"),
   ruleNameText: getEl("ruleNameText"),
   ruleStrategySelect: getEl("ruleStrategySelect"),
   ruleObjectiveSelect: getEl("ruleObjectiveSelect"),
@@ -1108,15 +1105,6 @@ function openMiscDialog() {
   if (!ui.miscDialog) return;
   renderMiscSettingInputs();
   if (!ui.miscDialog.open) ui.miscDialog.showModal();
-}
-
-function closeHelpDialog() {
-  if (ui.helpDialog?.open) ui.helpDialog.close();
-}
-
-function openHelpDialog() {
-  if (!ui.helpDialog) return;
-  if (!ui.helpDialog.open) ui.helpDialog.showModal();
 }
 
 function closeCustomFairyDialog() {
@@ -3425,7 +3413,7 @@ function localParseReplayMoveSpec(ctx, targetText) {
 
   const parsedOwner = localParseReplayOwnerPrefix(tokenRaw, ctx);
   let token = parsedOwner.body;
-  const owner = parsedOwner.owner;
+  let owner = parsedOwner.owner;
   token = localNormalizeDigits(token);
   const normalizedNeutral = localExtractNeutralPieceNotationToken(token);
   token = normalizedNeutral.text;
@@ -3500,6 +3488,11 @@ function localParseReplayMoveSpec(ctx, targetText) {
   if (prefixedNeutral && String(prefixedNeutral[1] || "").trim()) {
     neutralPiece = true;
     pieceText = String(prefixedNeutral[1] || "").trim();
+  }
+  const prefixedOpponent = pieceText.match(/^v(.+)$/i);
+  if (prefixedOpponent && String(prefixedOpponent[1] || "").trim()) {
+    if (owner === null) owner = 1 - Number(ctx?.state?.turn || 0);
+    pieceText = String(prefixedOpponent[1] || "").trim();
   }
   if (!pieceText) return null;
   return {
@@ -5592,7 +5585,6 @@ function localMergePieceAttrs(baseAttrs, patchAttrs) {
     if (localHasOwn(patch, key)) out[key] = patch[key];
   }
   if (out.is_king) {
-    out.to_hand = false;
     out.immortal = false;
   }
   return localNormalizePieceAttrs(out);
@@ -22025,11 +22017,6 @@ async function boot() {
       openIoDialog();
     });
   }
-  if (ui.btnHelpDialogOpen) {
-    ui.btnHelpDialogOpen.addEventListener("click", () => {
-      openHelpDialog();
-    });
-  }
   if (ui.ioDialog) {
     ui.ioDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -22121,12 +22108,6 @@ async function boot() {
       closeMiscDialog();
     });
   }
-  if (ui.helpDialog) {
-    ui.helpDialog.addEventListener("cancel", (e) => {
-      e.preventDefault();
-      closeHelpDialog();
-    });
-  }
   if (ui.customFairyDialog) {
     ui.customFairyDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -22147,11 +22128,6 @@ async function boot() {
   if (ui.btnMiscDialogClose) {
     ui.btnMiscDialogClose.addEventListener("click", () => {
       closeMiscDialog();
-    });
-  }
-  if (ui.btnHelpDialogClose) {
-    ui.btnHelpDialogClose.addEventListener("click", () => {
-      closeHelpDialog();
     });
   }
   if (ui.btnCustomFairyClose) {
