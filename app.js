@@ -20861,9 +20861,6 @@ function reverseComputeOnePlyCandidates(options = {}) {
   }
   const rules = state?.rules && typeof state.rules === "object" ? cloneJson(state.rules) : {};
   const typeAttrs = state?.type_attrs && typeof state.type_attrs === "object" ? cloneJson(state.type_attrs) : {};
-  // 逆算 pre局面でも「直前着手側(=非手番側)が王手状態」は王手放置になるため除外する。
-  const enforceNoCheckedPreviousMoverKing =
-    !relaxPredecessorCheckPolicy && !Boolean(rules?.allow_check_on_self);
   const currentTurn = Number(state?.turn || 0);
   const prevTurn = currentTurn === 0 ? 1 : 0;
   const reverseCtx = reverseResolveComputeContext();
@@ -20873,6 +20870,13 @@ function reverseComputeOnePlyCandidates(options = {}) {
     Number.isFinite(reverseCurrentForwardPlyRaw) && reverseCurrentForwardPlyRaw >= 0
       ? reverseCurrentForwardPlyRaw
       : null;
+  const isOpeningReverse = reverseCurrentForwardPly === 1;
+  // 逆算 pre局面でも「直前着手側(=非手番側)が王手状態」は通常は王手放置になるため除外する。
+  // ただし初期局面(開始局面)へ戻る 1 手逆算では「直前手」が存在しないため、この制約を適用しない。
+  const enforceNoCheckedPreviousMoverKing =
+    !relaxPredecessorCheckPolicy &&
+    !Boolean(rules?.allow_check_on_self) &&
+    !isOpeningReverse;
   const reverseObjective = String(rules?.objective || "詰");
   const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
   const isReceiverFirstOpeningReverse =
