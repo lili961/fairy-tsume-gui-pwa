@@ -196,7 +196,7 @@ const REVERSE_IO_HEADER = "F-TSUME-REVERSE-V1";
 const REVERSE_IO_KIND = "f-tsume-reverse-kifu-v1";
 const REVERSE_IO_EMBED_PREFIX = "F-TSUME-REVERSE-EMBED:";
 const REVERSE_PLAIN_MARKER_LINE = "逆算棋譜";
-const REVERSE_WORKER_SCRIPT = "./reverse_worker.js?v=20260318a";
+const REVERSE_WORKER_SCRIPT = "./reverse_worker.js?v=20260319h";
 const REVERSE_WORKER_TIMEOUT_MS = 5000;
 const REVERSE_PROFILE_LOG_ENABLED = true;
 const REVERSE_PRE_LEGAL_CACHE_VERSION = "20260314j";
@@ -12106,7 +12106,7 @@ async function registerServiceWorkerIfAvailable() {
   const isSecure = window.location.protocol === "https:";
   if (!isSecure && !isLocalHost) return;
   try {
-    await navigator.serviceWorker.register("./sw.js?v=20260314a", { scope: "./" });
+    await navigator.serviceWorker.register("./sw.js?v=20260319a", { scope: "./" });
   } catch (e) {
     logLine(`ServiceWorker登録失敗：${e?.message || e}`, true);
   }
@@ -19971,7 +19971,15 @@ function reverseLogComputeProfile(profile, source = "") {
       profile.hinted_eval_count || 0
     )} / full計算=${Number(profile.full_eval_count || 0)} / 結果=${Number(
       profile.result_count || 0
-    )}${profile.limit_reached ? " / limit" : ""}`
+    )} / skip(配置/前手王手/受玉非王手)=${Number(profile.skip_invalid_pre || 0)}/${Number(
+      profile.skip_prev_mover_checked || 0
+    )}/${Number(profile.skip_defender_not_checked || 0)} / ctx(t:${Number(profile.debug_current_turn ?? -1)},p:${Number(
+      profile.debug_prev_turn ?? -1
+    )},def:${Number(profile.debug_enforce_defender_checked ? 1 : 0)},fp:${Number(
+      profile.debug_forward_ply ?? -1
+    )},rply:${Number(profile.debug_reverse_ply ?? -1)},pp:${Number(profile.debug_problem_ply ?? -1)})${
+      profile.limit_reached ? " / limit" : ""
+    }`
   );
 }
 
@@ -20474,39 +20482,86 @@ function reverseBeforeAttrsCandidatesForMove(movedNow, promote, typeAttrsOrCtx =
   return out;
 }
 
-function reverseCaptureNamesByHandName() {
-  const out = new Map();
-  for (const name of Object.keys(LOCAL_PIECE_SPECS)) {
-    if (!name || localIsKingName(name) || localIsNeutralImitatorName(name) || name === "石" || name === "穴" || name === "塔") {
-      continue;
-    }
-    const handName = baseNameForHand(name);
-    if (!out.has(handName)) out.set(handName, []);
-    out.get(handName).push(name);
+function reverseResolveBeforeAttrsForPreState(beforeAttrs, movedNow, typeAttrsOrCtx = null) {
+  const out = localCloneRawPieceAttrs(beforeAttrs);
+  const movedEff =
+    movedNow?.effective_attrs && typeof movedNow.effective_attrs === "object"
+      ? movedNow.effective_attrs
+      : localEffectivePieceAttrs(movedNow, typeAttrsOrCtx);
+  if (Boolean(movedEff?.is_king) && !localHasOwn(out, "is_king")) {
+    out.is_king = true;
   }
   return out;
 }
 
-function reverseAllCapturablePieceNames() {
+function reverseCaptureCandidateNames(typeAttrsOrCtx = null) {
   const out = new Set();
-  const byHand = reverseCaptureNamesByHandName();
-  for (const names of byHand.values()) {
-    for (const name of names || []) {
-      if (name) out.add(String(name));
+  for (const name of Object.keys(LOCAL_PIECE_SPECS || {})) {
+    const nm = String(name || "").trim();
+    if (!nm) continue;
+    out.add(nm);
+  }
+  if (customPieceDirectSpecMap && typeof customPieceDirectSpecMap.keys === "function") {
+    for (const name of customPieceDirectSpecMap.keys()) {
+      const nm = String(name || "").trim();
+      if (!nm) continue;
+      out.add(nm);
+    }
+  }
+  if (customPieceMoveLikeMap && typeof customPieceMoveLikeMap.keys === "function") {
+    for (const name of customPieceMoveLikeMap.keys()) {
+      const nm = String(name || "").trim();
+      if (!nm) continue;
+      out.add(nm);
+    }
+  }
+  const typeAttrs = localResolveTypeAttrsMap(typeAttrsOrCtx);
+  if (typeAttrs && typeof typeAttrs === "object") {
+    for (const name of Object.keys(typeAttrs)) {
+      const nm = String(name || "").trim();
+      if (!nm) continue;
+      out.add(nm);
     }
   }
   return Array.from(out.values());
 }
 
-function reverseCapturableNamesForStandardBase(baseName) {
+function reverseIsNonCapturableName(name, typeAttrsOrCtx = null) {
+  const nm = String(name || "").trim();
+  if (!nm) return true;
+  if (localIsNeutralImitatorName(nm) || nm === "石" || nm === "穴" || nm === "塔") return true;
+  const eff = localEffectivePieceAttrs({ name: nm, attrs: {} }, typeAttrsOrCtx);
+  return Boolean(eff?.is_king);
+}
+
+function reverseCaptureNamesByHandName(typeAttrsOrCtx = null) {
+  const out = new Map();
+  for (const name of reverseCaptureCandidateNames(typeAttrsOrCtx)) {
+    if (reverseIsNonCapturableName(name, typeAttrsOrCtx)) continue;
+    const probePiece = { name: String(name), owner: 0, attrs: {} };
+    if (!localShouldCapturedGoToHand(probePiece, typeAttrsOrCtx)) continue;
+    const handName = baseNameForHand(name);
+    if (!out.has(handName)) out.set(handName, []);
+    out.get(handName).push(String(name));
+  }
+  return out;
+}
+
+function reverseAllCapturablePieceNames(typeAttrsOrCtx = null) {
+  const out = new Set();
+  for (const name of reverseCaptureCandidateNames(typeAttrsOrCtx)) {
+    if (reverseIsNonCapturableName(name, typeAttrsOrCtx)) continue;
+    out.add(String(name));
+  }
+  return Array.from(out.values());
+}
+
+function reverseCapturableNamesForStandardBase(baseName, typeAttrsOrCtx = null) {
   const targetBase = String(baseName || "");
   if (!targetBase) return [];
   const out = [];
-  for (const name of Object.keys(LOCAL_PIECE_SPECS)) {
-    if (!name) continue;
-    if (localIsKingName(name) || localIsNeutralImitatorName(name) || name === "石" || name === "穴" || name === "塔") {
-      continue;
-    }
+  for (const name of reverseCaptureCandidateNames(typeAttrsOrCtx)) {
+    if (reverseIsNonCapturableName(name, typeAttrsOrCtx)) continue;
     if (String(standardBaseName(name)) !== targetBase) continue;
     out.push(String(name));
   }
@@ -20817,7 +20872,7 @@ function reverseCirceRebirthSquaresByRule(pieceName, owner, capturePos) {
   return dists.filter((v) => Number(v.d) === Number(minDist)).map((v) => ({ x: Number(v.s.x), y: Number(v.s.y) }));
 }
 
-function reverseCirceNoHandCaptureNameCandidates(pieces, capturedOwner, capturePos) {
+function reverseCirceNoHandCaptureNameCandidates(pieces, capturedOwner, capturePos, typeAttrsOrCtx = null) {
   const out = new Set();
   const src = Array.isArray(pieces) ? pieces : [];
   const ownerNum = Number(capturedOwner);
@@ -20826,16 +20881,17 @@ function reverseCirceNoHandCaptureNameCandidates(pieces, capturedOwner, captureP
   for (const p of src) {
     if (!p) continue;
     if (Number(p.owner) !== ownerNum) continue;
+    if (localPieceIsKing(p)) continue;
     const base = standardBaseName(String(p.name || ""));
     if (!base) continue;
-    if (localIsKingName(base) || localIsNeutralImitatorName(base) || base === "石" || base === "穴" || base === "塔") {
+    if (reverseIsNonCapturableName(base, typeAttrsOrCtx)) {
       continue;
     }
     const rebirthSquares = reverseCirceRebirthSquaresByRule(base, ownerNum, cap);
     if (
       rebirthSquares.some((sq) => Number(sq.x) === Number(p.x) && Number(sq.y) === Number(p.y))
     ) {
-      const variants = reverseCapturableNamesForStandardBase(base);
+      const variants = reverseCapturableNamesForStandardBase(base, typeAttrsOrCtx);
       if (variants.length > 0) {
         for (const cand of variants) out.add(String(cand));
       } else {
@@ -20844,6 +20900,25 @@ function reverseCirceNoHandCaptureNameCandidates(pieces, capturedOwner, captureP
     }
   }
   return Array.from(out.values());
+}
+
+function reverseMoveCapturesKingFromPre(prePieces, move, typeAttrsOrCtx = null) {
+  if (!move || move.kind !== "move" || !move.capture) return false;
+  const src = Array.isArray(prePieces) ? prePieces : [];
+  const moverOwner = Number(move.owner);
+  const capPos =
+    move?.take_make?.capture_at && localInBoard(Number(move.take_make.capture_at.x), Number(move.take_make.capture_at.y))
+      ? { x: Number(move.take_make.capture_at.x), y: Number(move.take_make.capture_at.y) }
+      : move?.locust_capture && localInBoard(Number(move.locust_capture.x), Number(move.locust_capture.y))
+      ? { x: Number(move.locust_capture.x), y: Number(move.locust_capture.y) }
+      : move?.to && localInBoard(Number(move.to.x), Number(move.to.y))
+      ? { x: Number(move.to.x), y: Number(move.to.y) }
+      : null;
+  if (!capPos) return false;
+  const cap = src.find((p) => p && Number(p.x) === Number(capPos.x) && Number(p.y) === Number(capPos.y));
+  if (!cap) return false;
+  if (Number(cap.owner) === Number(moverOwner)) return false;
+  return localPieceIsKing(localAnnotatePieceEffectiveAttrs({ ...cap, attrs: localCloneRawPieceAttrs(cap?.attrs) }, typeAttrsOrCtx));
 }
 
 function reverseComputeOnePlyCandidates(options = {}) {
@@ -20865,6 +20940,9 @@ function reverseComputeOnePlyCandidates(options = {}) {
     full_eval_count: 0,
     result_count: 0,
     limit_reached: false,
+    skip_invalid_pre: 0,
+    skip_prev_mover_checked: 0,
+    skip_defender_not_checked: 0,
   };
   reverseMoves = [];
   reverseStatusText = "-";
@@ -20876,53 +20954,70 @@ function reverseComputeOnePlyCandidates(options = {}) {
   const typeAttrs = state?.type_attrs && typeof state.type_attrs === "object" ? cloneJson(state.type_attrs) : {};
   const reverseCtx = reverseResolveComputeContext();
   const reverseStartTurn = reverseNormalizeStartTurn(reverseCtx?.start_turn, state?.turn);
-  const flowForwardPlyRaw = Number.parseInt(reverseCtx?.current_forward_ply, 10);
-  const flowForwardPly = Number.isFinite(flowForwardPlyRaw) && flowForwardPlyRaw >= 0 ? flowForwardPlyRaw : null;
-  const stateTurn = Number(state?.turn || 0);
-  const currentTurn =
-    Number.isFinite(flowForwardPly) && flowForwardPly >= 0
-      ? (reverseStartTurn ^ (Number(flowForwardPly) & 1)) === 1
-        ? 1
-        : 0
-      : stateTurn === 1
-      ? 1
-      : 0;
-  const prevTurn =
-    Number.isFinite(flowForwardPly) && flowForwardPly > 0
-      ? (reverseStartTurn ^ ((Number(flowForwardPly) - 1) & 1)) === 1
-        ? 1
-        : 0
-      : currentTurn === 0
-      ? 1
-      : 0;
   const reverseNode = reverseCurrentNode();
   const reverseNodePlyRaw = Number.parseInt(reverseNode?.ply, 10);
   const reverseNodePly = Number.isFinite(reverseNodePlyRaw) && reverseNodePlyRaw >= 0 ? reverseNodePlyRaw : 0;
+  const flowForwardPlyRaw = Number.parseInt(reverseCtx?.current_forward_ply, 10);
+  const flowForwardPly = Number.isFinite(flowForwardPlyRaw) && flowForwardPlyRaw >= 0 ? flowForwardPlyRaw : null;
   const nodeForwardPlyRaw = Number.parseInt(reverseNode?.forward_ply, 10);
-  let currentForwardPly = Number.isFinite(nodeForwardPlyRaw) && nodeForwardPlyRaw >= 0 ? nodeForwardPlyRaw : null;
-  if (currentForwardPly === null) {
-    const ruleProblemPlyRaw = Number.parseInt(rules?.problem_ply, 10);
-    if (Number.isFinite(ruleProblemPlyRaw) && ruleProblemPlyRaw >= 0) {
-      currentForwardPly = Math.max(0, ruleProblemPlyRaw - reverseNodePly);
+  const nodeForwardPly = Number.isFinite(nodeForwardPlyRaw) && nodeForwardPlyRaw >= 0 ? nodeForwardPlyRaw : null;
+  const ruleProblemPlyRaw = Number.parseInt(rules?.problem_ply, 10);
+  const ruleProblemPly = Number.isFinite(ruleProblemPlyRaw) && ruleProblemPlyRaw >= 0 ? ruleProblemPlyRaw : null;
+  let currentForwardPly = nodeForwardPly;
+  if (currentForwardPly === null && Number.isFinite(flowForwardPly) && flowForwardPly >= 0) {
+    currentForwardPly = flowForwardPly;
+  }
+  if (currentForwardPly === null && Number.isFinite(ruleProblemPly)) {
+    currentForwardPly = Math.max(0, Number(ruleProblemPly) - reverseNodePly);
+  }
+  if (Number.isFinite(ruleProblemPly)) {
+    const byRule = Math.max(0, Number(ruleProblemPly) - reverseNodePly);
+    if (
+      currentForwardPly === null ||
+      (Number(currentForwardPly) === 0 && byRule > 0 && reverseNodePly < Number(ruleProblemPly))
+    ) {
+      currentForwardPly = byRule;
     }
   }
+  // 逆算候補の手番は、常に現在局面 state.turn を正とする。
+  // （forward_ply 由来の推定は、受先初手例外判定のみで使う）
+  const currentTurn = Number(state?.turn) === 1 ? 1 : 0;
+  const prevTurn = currentTurn === 0 ? 1 : 0;
   // 逆算 pre局面でも「直前着手側(=非手番側)が王手状態」は通常は王手放置になるため除外する。
   const enforceNoCheckedPreviousMoverKing =
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_check_on_self);
   const reverseObjective = String(rules?.objective || "詰");
   const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
+  const requireAttackerCheckingMove =
+    reverseObjective === "詰" &&
+    !relaxPredecessorCheckPolicy &&
+    !Boolean(rules?.allow_sente_non_check);
   // 受先の初手逆算例外:
   // 逆算後に規定手数の開始局面へ到達する手(=現在forward手数が1)のみ、受方王手必須を外す。
   const allowUncheckedDefenderAtOpening =
     Number(prevTurn) === 1 && Number.isFinite(currentForwardPly) && Number(currentForwardPly) === 1;
+  // 規定手数ちょうどまで逆算した境界（reverse ply === problem_ply）では、
+  // 受方手の逆算候補に限り王手必須を一度だけ外す。
+  const allowUncheckedDefenderAtConfiguredBoundary =
+    Number(prevTurn) === 1 &&
+    Number.isFinite(ruleProblemPly) &&
+    Number(reverseNodePly) + 1 === Number(ruleProblemPly);
+  const allowUncheckedDefenderForThisStep =
+    allowUncheckedDefenderAtOpening || allowUncheckedDefenderAtConfiguredBoundary;
   const enforceCheckedDefenderBeforeDefenderMove =
     requireDefenderCheckedBeforeDefenderMove &&
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_sente_non_check) &&
     !Boolean(rules?.allow_check_on_self) &&
     Number(prevTurn) === 1 &&
-    !allowUncheckedDefenderAtOpening;
+    !allowUncheckedDefenderForThisStep;
+  profile.debug_current_turn = Number(currentTurn);
+  profile.debug_prev_turn = Number(prevTurn);
+  profile.debug_enforce_defender_checked = Boolean(enforceCheckedDefenderBeforeDefenderMove);
+  profile.debug_forward_ply = Number.isFinite(currentForwardPly) ? Number(currentForwardPly) : null;
+  profile.debug_reverse_ply = Number(reverseNodePly);
+  profile.debug_problem_ply = Number.isFinite(ruleProblemPly) ? Number(ruleProblemPly) : null;
   const predecessorPolicyKey = [
     enforceNoCheckedPreviousMoverKing ? "pmok" : "pm__",
     enforceCheckedDefenderBeforeDefenderMove ? "def1" : "def_",
@@ -20933,8 +21028,8 @@ function reverseComputeOnePlyCandidates(options = {}) {
   const currentHands = localCloneHands(state?.hands || {});
   const currentSig = reverseBuildTargetStateComparator(currentPieces, currentHands, currentTurn);
   const occupiedNow = new Set(currentPieces.map((p) => `${p.x},${p.y}`));
-  const captureNameMap = reverseCaptureNamesByHandName();
-  const allCapturableNames = reverseAllCapturablePieceNames();
+  const captureNameMap = reverseCaptureNamesByHandName(typeAttrs);
+  const allCapturableNames = reverseAllCapturablePieceNames(typeAttrs);
   const noHandCaptureNeededByRules = Boolean(rules?.circe) || Boolean(rules?.pwc);
   const noHandCaptureNeededByAttrs = currentPieces.some((p) => {
     if (!p) return false;
@@ -20942,7 +21037,8 @@ function reverseComputeOnePlyCandidates(options = {}) {
     if (owner !== 0 && owner !== 1) return false;
     const name = String(p.name || "");
     if (!name) return false;
-    if (localIsKingName(name) || localIsNeutralImitatorName(name) || name === "石" || name === "穴" || name === "塔") {
+    const eff = localEffectivePieceAttrs(p, typeAttrs);
+    if (Boolean(eff?.is_king) || localIsNeutralImitatorName(name) || name === "石" || name === "穴" || name === "塔") {
       return false;
     }
     return !localShouldCapturedGoToHand(p, typeAttrs);
@@ -21045,7 +21141,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
         return;
       }
       if (reverseHasInvalidPreStatePlacement(preState.board.pieces, rules)) {
-        cached = { skip: true, legal: [] };
+        cached = { skip: true, legal: [], reason: "invalid" };
       } else {
         const tLegalStart = reverseNowMs();
         const simCtx = localBuildAnalysisContext(preState, null, "", null, typeAttrs);
@@ -21057,7 +21153,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
             typeAttrsOrCtx: typeAttrs,
           });
           if (checkedPrevMoverKing) {
-            cached = { skip: true, legal: [] };
+            cached = { skip: true, legal: [], reason: "prev_mover_checked" };
           }
         }
         if (!cached && enforceCheckedDefenderBeforeDefenderMove && Number(prevTurn) === 1) {
@@ -21066,7 +21162,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
             typeAttrsOrCtx: typeAttrs,
           });
           if (!checkedDefenderKing) {
-            cached = { skip: true, legal: [] };
+            cached = { skip: true, legal: [], reason: "defender_not_checked" };
           }
         }
         if (!cached) {
@@ -21088,7 +21184,13 @@ function reverseComputeOnePlyCandidates(options = {}) {
       predecessorLegalCache.set(preKey, cached);
       reverseSetPredecessorLegalGlobalCache(preKey, cached);
     }
-    if (!cached || cached.skip) return;
+    if (!cached || cached.skip) {
+      const reason = String(cached?.reason || "");
+      if (reason === "invalid") profile.skip_invalid_pre += 1;
+      else if (reason === "prev_mover_checked") profile.skip_prev_mover_checked += 1;
+      else if (reason === "defender_not_checked") profile.skip_defender_not_checked += 1;
+      return;
+    }
     const legal = Array.isArray(cached.legal) ? cached.legal : [];
     profile.legal_scanned += legal.length;
     for (const mv of legal) {
@@ -21113,10 +21215,14 @@ function reverseComputeOnePlyCandidates(options = {}) {
         );
       profile.state_match_ms += reverseNowMs() - tMatchStart;
       if (!matched) continue;
-      if (!Boolean(rules?.allow_check_on_self)) {
-        const checkedSimInfo = localCandidateLastMoveInfo(mv);
-        const checkedSimMoveStr = String(mv?.notation || "");
-        const checkedSim = localSimulateStateAfterCandidate(
+      const checkedSimInfo = localCandidateLastMoveInfo(mv);
+      const checkedSimMoveStr = String(mv?.notation || "");
+      const enforceSelfCheck = !Boolean(rules?.allow_check_on_self);
+      const enforceAttackerCheckNow =
+        requireAttackerCheckingMove && Number(mv?.owner) === 0;
+      let checkedSim = null;
+      if (enforceSelfCheck || enforceAttackerCheckNow) {
+        checkedSim = localSimulateStateAfterCandidate(
           preState.board.pieces,
           preState.hands,
           prevTurn,
@@ -21124,15 +21230,34 @@ function reverseComputeOnePlyCandidates(options = {}) {
           rules,
           typeAttrs
         );
-        if (
-          checkedSim &&
-          localIsInCheckWithRules(checkedSim.board.pieces, Number(prevTurn), rules, {
+      }
+      if (
+        enforceSelfCheck &&
+        checkedSim &&
+        localIsInCheckWithRules(checkedSim.board.pieces, Number(prevTurn), rules, {
+          lastMoveInfo: checkedSimInfo,
+          lastMoveStr: checkedSimMoveStr,
+          neutralTurnOwner: Number(checkedSim.turn),
+          typeAttrsOrCtx: typeAttrs,
+        })
+      ) {
+        continue;
+      }
+      if (enforceAttackerCheckNow && checkedSim) {
+        const givesCheckForObligation = localIsInCheckWithRules(
+          checkedSim.board.pieces,
+          1 - Number(mv.owner),
+          rules,
+          {
             lastMoveInfo: checkedSimInfo,
             lastMoveStr: checkedSimMoveStr,
-            neutralTurnOwner: Number(checkedSim.turn),
+            ignoreCaptureRepeatType: true,
+            neutralTurnOwner: Number(mv.owner),
             typeAttrsOrCtx: typeAttrs,
-          })
-        ) {
+          }
+        );
+        const takesKing = reverseMoveCapturesKingFromPre(preState.board.pieces, mv, typeAttrs);
+        if (!givesCheckForObligation && !takesKing) {
           continue;
         }
       }
@@ -21221,6 +21346,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
         if (limitReached) break;
         const beforeSpec = localPieceSpec(beforeName);
         const allowSameSquareSource = Boolean(beforeSpec && beforeSpec.type === "zero");
+        const beforeAttrsResolved = reverseResolveBeforeAttrsForPreState(beforeAttrs, movedNow, typeAttrs);
         if (fromSources) {
           for (const src of fromSources) {
             if (limitReached) break;
@@ -21238,7 +21364,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
               y: fy,
               owner: movingPieceOwnerExpected,
               name: beforeName,
-              attrs: localCloneRawPieceAttrs(beforeAttrs),
+              attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
             };
             prePiecesNoCapture.push(movingPieceNoCapture);
             const pseudoNoCaptureReach = reverseHasPseudoTarget(
@@ -21304,7 +21430,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                     y: fy,
                     owner: movingPieceOwnerExpected,
                     name: beforeName,
-                    attrs: localCloneRawPieceAttrs(beforeAttrs),
+                    attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
                   };
                   prePiecesCapture.push(movingPieceCapture);
                   prePiecesCapture.push({
@@ -21387,7 +21513,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                 const capturedOwnerNoHand = moveOwnerExpected === 0 ? 1 : 0;
                 const capNameCandidatesRaw =
                   rules?.circe && !rules?.pwc && !rules?.anti_circe
-                    ? reverseCirceNoHandCaptureNameCandidates(others, capturedOwnerNoHand, capSq)
+                    ? reverseCirceNoHandCaptureNameCandidates(others, capturedOwnerNoHand, capSq, typeAttrs)
                     : allCapturableNames;
                 const capNameCandidates =
                   Array.isArray(capNameCandidatesRaw) && capNameCandidatesRaw.length > 0
@@ -21402,7 +21528,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                     y: fy,
                     owner: movingPieceOwnerExpected,
                     name: beforeName,
-                    attrs: localCloneRawPieceAttrs(beforeAttrs),
+                    attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
                   };
                   prePiecesCaptureNoHandBase.push(movingPieceCaptureNoHand);
                   prePiecesCaptureNoHandBase.push({
@@ -21521,7 +21647,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                   y: fy,
                   owner: movingPieceOwnerExpected,
                   name: beforeName,
-                  attrs: localCloneRawPieceAttrs(beforeAttrs),
+                  attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
                 };
                 prePiecesNoCapture.push(movingPieceNoCapture);
                 const pseudoNoCaptureReach = reverseHasPseudoTarget(
@@ -21571,7 +21697,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                   y: fy,
                   owner: movingPieceOwnerExpected,
                   name: beforeName,
-                  attrs: localCloneRawPieceAttrs(beforeAttrs),
+                  attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
                 },
               ];
               const captureSquares = rules?.rifle
@@ -21605,7 +21731,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                       y: fy,
                       owner: movingPieceOwnerExpected,
                       name: beforeName,
-                      attrs: localCloneRawPieceAttrs(beforeAttrs),
+                      attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
                     };
                     prePiecesCapture.push(movingPieceCapture);
                     prePiecesCapture.push({
@@ -21681,7 +21807,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                   const capturedOwnerNoHand = moveOwnerExpected === 0 ? 1 : 0;
                   const capNameCandidatesRaw =
                     rules?.circe && !rules?.pwc && !rules?.anti_circe
-                      ? reverseCirceNoHandCaptureNameCandidates(others, capturedOwnerNoHand, capSq)
+                      ? reverseCirceNoHandCaptureNameCandidates(others, capturedOwnerNoHand, capSq, typeAttrs)
                       : allCapturableNames;
                   const capNameCandidates =
                     Array.isArray(capNameCandidatesRaw) && capNameCandidatesRaw.length > 0
@@ -21696,7 +21822,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
                       y: fy,
                       owner: movingPieceOwnerExpected,
                       name: beforeName,
-                      attrs: localCloneRawPieceAttrs(beforeAttrs),
+                      attrs: localCloneRawPieceAttrs(beforeAttrsResolved),
                     };
                     prePiecesCaptureNoHandBase.push(movingPieceCaptureNoHand);
                     prePiecesCaptureNoHandBase.push({
