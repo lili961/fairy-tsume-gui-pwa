@@ -11,9 +11,17 @@
   --ctrl-bg: #dddddd;
   --last-from: #f5e2a5;
   --last-to: #f5c38d;
-  --cell-w: 48px;
-  --cell-h: 54px;
-  --piece-font-size: clamp(22px, calc(var(--cell-w) * 0.77), 37px);
+  --board-scale: 1;
+  --piece-scale: 1;
+  --cell-w-base: 48px;
+  --cell-h-base: 54px;
+  --cell-w: calc(var(--cell-w-base) * var(--board-scale));
+  --cell-h: calc(var(--cell-h-base) * var(--board-scale));
+  --piece-font-size: calc(var(--cell-w) * 0.77 * var(--piece-scale));
+  --hand-item-w: calc(var(--cell-w) * 0.875);
+  --hand-item-h: calc(var(--cell-h) * 0.852);
+  --hand-list-h: calc(var(--hand-item-h) + 2px);
+  --hand-count-size: clamp(10px, calc(var(--piece-font-size) * 0.35), 18px);
   --axis-h: 20px;
   --axis-w: 24px;
   --side-play-width: 340px;
@@ -220,6 +228,9 @@ button:disabled {
   padding: 4px 6px;
   margin-bottom: 6px;
   width: calc(var(--cell-w) * 9 + var(--axis-w));
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
 }
 
 .hand-strip.active {
@@ -240,18 +251,21 @@ button:disabled {
   flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
-  height: 46px;
-  min-height: 46px;
+  height: var(--hand-list-h);
+  min-height: var(--hand-list-h);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-gutter: stable;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
 }
 
 .hand-item {
   border: 2px solid transparent;
   background: transparent;
-  width: 42px;
-  height: 46px;
+  width: var(--hand-item-w);
+  height: var(--hand-item-h);
   padding: 0;
   position: relative;
   display: grid;
@@ -287,6 +301,14 @@ button:disabled {
   line-height: 1;
 }
 
+.hand-piece.piece-text-compact,
+.piecebox-item .piecebox-text.piece-text-compact,
+.piece.piece-text-compact {
+  font-size: calc(var(--piece-font-size) * 0.72);
+  font-weight: 500;
+  letter-spacing: -0.06em;
+}
+
 .hand-piece.owner-1 {
   display: inline-block;
   transform: rotate(180deg);
@@ -301,7 +323,7 @@ button:disabled {
   position: absolute;
   right: -1px;
   bottom: -3px;
-  font-size: 13px;
+  font-size: var(--hand-count-size);
   line-height: 1;
   color: #0b4db8;
   font-weight: bold;
@@ -845,7 +867,8 @@ body[data-mode="edit"] #logPanel {
 .misc-settings-list {
   display: grid;
   gap: 2px;
-  min-height: 120px;
+  height: 220px;
+  min-height: 220px;
   max-height: 220px;
   overflow: auto;
   border: 1px solid #bbb;
@@ -861,6 +884,30 @@ body[data-mode="edit"] #logPanel {
   border: 1px solid #bbb;
   background: #fafafa;
   font-size: 12px;
+}
+
+.misc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+
+.misc-tab {
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid #777;
+  background: #fff;
+  color: #222;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.misc-tab.active {
+  background: #e6f0ff;
+  border-color: #5577aa;
+  color: #123;
+  font-weight: bold;
 }
 
 .misc-setting-row {
@@ -1851,8 +1898,8 @@ body.history-divider-dragging .history-divider::before {
     --axis-h: 18px;
     --axis-w: 20px;
     --mobile-board-margin: 32px;
-    --cell-w: clamp(28px, calc((100vw - var(--mobile-board-margin) - var(--axis-w)) / 9), 40px);
-    --cell-h: clamp(32px, calc(var(--cell-w) * 1.15), 46px);
+    --cell-w-base: clamp(28px, calc((100vw - var(--mobile-board-margin) - var(--axis-w)) / 9), 40px);
+    --cell-h-base: clamp(32px, calc(var(--cell-w-base) * 1.15), 46px);
   }
 
   .shell {

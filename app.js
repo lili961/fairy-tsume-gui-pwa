@@ -96,8 +96,10 @@ const ui = {
   btnRuleDialogOpen: getEl("btnRuleDialogOpen"),
   btnMiscDialogOpen: getEl("btnMiscDialogOpen"),
   btnIoDialogOpen: getEl("btnIoDialogOpen"),
+  btnHelpDialogOpen: getEl("btnHelpDialogOpen"),
   btnIoDialogClose: getEl("btnIoDialogClose"),
   btnIoUpload: getEl("btnIoUpload"),
+  btnIoUploadKifuOnly: getEl("btnIoUploadKifuOnly"),
   btnIoDownload: getEl("btnIoDownload"),
   btnRefresh: getEl("btnRefresh"),
   btnModePlay: getEl("btnModePlay"),
@@ -111,13 +113,17 @@ const ui = {
   btnHistPlay: getEl("btnHistPlay"),
   btnHistEnd: getEl("btnHistEnd"),
   btnLoadClipboard: getEl("btnLoadClipboard"),
+  btnLoadClipboardKifuOnly: getEl("btnLoadClipboardKifuOnly"),
   btnExportSfen: getEl("btnExportSfen"),
   btnExportKifu: getEl("btnExportKifu"),
   ruleDialog: getEl("ruleDialog"),
   miscDialog: getEl("miscDialog"),
+  helpDialog: getEl("helpDialog"),
   miscSettingList: getEl("miscSettingList"),
+  miscTabBar: getEl("miscTabBar"),
   btnMiscApply: getEl("btnMiscApply"),
   btnMiscDialogClose: getEl("btnMiscDialogClose"),
+  btnHelpDialogClose: getEl("btnHelpDialogClose"),
   ruleNameText: getEl("ruleNameText"),
   ruleStrategySelect: getEl("ruleStrategySelect"),
   ruleObjectiveSelect: getEl("ruleObjectiveSelect"),
@@ -230,6 +236,7 @@ let ruleStrategyOptions = [];
 let ruleObjectiveOptions = [];
 let renderedRuleFlagKeys = [];
 let activeRuleTab = "performance";
+let activeMiscSettingTab = "display";
 let ruleDraft = null;
 let ruleConstraintInfoText = "";
 let customPieceMoveLikeMap = new Map();
@@ -250,6 +257,7 @@ let historyBranchDialogCleanup = null;
 let pendingRightAction = null;
 let ioBusyCount = 0;
 let ioDragDepth = 0;
+let ioFileLoadMode = "auto";
 let ioProgressPulseTimer = null;
 let ioClipboardNoticeTimer = null;
 let ioLoadProgressHook = null;
@@ -276,6 +284,8 @@ let refreshLegalSeq = 0;
 let refreshHistorySeq = 0;
 let historyDividerDragging = null;
 let historyScrollbarSyncRaf = 0;
+const REJECTED_LEGAL_BY_POSITION_MAX = 24;
+const rejectedLegalByPosition = new Map(); // key: `${sessionId}:${revision}` -> Set(signature)
 
 const PROMOTION_TOGGLE_MAP = {
   歩: "と",
@@ -365,6 +375,7 @@ const LOCAL_RULE_LABEL_PARSE_ORDER = Object.freeze([
   "koko",
   "narikin",
   "torikin",
+  "attacker_no_capture",
   "zentorikin",
   "koma_amari_kin",
   "cant_repeat_type",
@@ -409,6 +420,7 @@ const LOCAL_RULE_LABELS_CONSTRAINT = Object.freeze([
   ["koko", "Koko"],
   ["narikin", "成禁"],
   ["torikin", "取禁"],
+  ["attacker_no_capture", "攻方取禁"],
   ["zentorikin", "全取禁"],
   ["koma_amari_kin", "駒余り禁"],
   ["cant_repeat_type", "駒全マネ禁"],
@@ -467,6 +479,7 @@ const LOCAL_DEFAULT_RULES = Object.freeze({
   all_andernach: false,
   greedy: false,
   abstinence: false,
+  attacker_no_capture: false,
   koko: false,
   narikin: false,
   torikin: false,
@@ -588,6 +601,7 @@ const RULE_TAB_KEY_MAP = {
     "isardam_type_b",
     "narikin",
     "torikin",
+    "attacker_no_capture",
     "zentorikin",
     "uchifu_simple",
     "uchifu_complete",
@@ -678,6 +692,48 @@ const UI_SETTING_DEFS = Object.freeze([
     section: "display",
   },
   {
+    key: "attacker_king_glyph",
+    label: "攻方玉の表示",
+    note: "盤面/棋譜/出力で使用",
+    defaultValue: "玉",
+    options: ["玉", "王"],
+    type: "select",
+    section: "display",
+  },
+  {
+    key: "defender_king_glyph",
+    label: "受方玉の表示",
+    note: "盤面/棋譜/出力で使用",
+    defaultValue: "玉",
+    options: ["玉", "王"],
+    type: "select",
+    section: "display",
+  },
+  {
+    key: "board_scale_percent",
+    label: "盤倍率(%)",
+    note: "盤・持駒・駒箱の大きさ",
+    defaultValue: 100,
+    min: 70,
+    max: 140,
+    step: 5,
+    integer: true,
+    type: "number",
+    section: "display",
+  },
+  {
+    key: "piece_scale_percent",
+    label: "駒文字倍率(%)",
+    note: "盤・持駒・駒箱の駒文字サイズ",
+    defaultValue: 100,
+    min: 70,
+    max: 160,
+    step: 5,
+    integer: true,
+    type: "number",
+    section: "display",
+  },
+  {
     key: "history_main_col_percent",
     label: "本譜列幅(%)",
     note: "棋譜表示の本譜/変化の区切り位置",
@@ -712,6 +768,35 @@ const UI_SETTING_DEFS = Object.freeze([
   },
 ]);
 const UI_SETTING_DEF_MAP = new Map(UI_SETTING_DEFS.map((def) => [def.key, def]));
+const MISC_SETTING_TABS = Object.freeze([
+  Object.freeze({ key: "display", label: "表示" }),
+  Object.freeze({ key: "notation", label: "表記" }),
+  Object.freeze({ key: "size", label: "サイズ" }),
+  Object.freeze({ key: "playback", label: "再生" }),
+  Object.freeze({ key: "attack", label: "利き" }),
+]);
+const MISC_SETTING_TAB_LABELS = Object.freeze(
+  MISC_SETTING_TABS.reduce((acc, tab) => {
+    acc[tab.key] = tab.label;
+    return acc;
+  }, {}),
+);
+
+function normalizeMiscSettingTabKey(raw) {
+  const key = String(raw || "").trim();
+  return MISC_SETTING_TAB_LABELS[key] ? key : "display";
+}
+
+function localMiscSettingTabKeyForDef(def, sectionOverride = null) {
+  const key = String(def?.key || "");
+  const section = String(sectionOverride || def?.section || "display");
+  if (section === "playback") return "playback";
+  if (section === "attack") return "attack";
+  if (key === "show_attack_overlay") return "attack";
+  if (key === "attacker_king_glyph" || key === "defender_king_glyph") return "notation";
+  if (key === "board_scale_percent" || key === "piece_scale_percent") return "size";
+  return "display";
+}
 const ATTACK_OVERLAY_SETTING_DEFS = Object.freeze([
   { key: "show_attacker_pieces", label: "利き: 攻方", note: "攻方の駒利きを表示" },
   { key: "arrow_attacker_pieces", label: "利き: 攻駒矢印", note: "攻方の利き経路を矢印表示" },
@@ -728,6 +813,8 @@ function buildDefaultUiSettings() {
       const raw = Number(def.defaultValue);
       const fallback = Number.isFinite(raw) ? raw : 0;
       defaults[def.key] = normalizeUiSettingNumber(def, fallback, fallback);
+    } else if (def.type === "select") {
+      defaults[def.key] = normalizeUiSettingSelect(def, def.defaultValue, def.defaultValue);
     } else {
       defaults[def.key] = Boolean(def.defaultValue);
     }
@@ -750,6 +837,20 @@ function normalizeUiSettingNumber(def, rawValue, fallbackValue) {
   return n;
 }
 
+function normalizeUiSettingSelect(def, rawValue, fallbackValue) {
+  const opts = Array.isArray(def?.options)
+    ? def.options.map((v) => String(v || "").trim()).filter((v) => v.length > 0)
+    : [];
+  if (opts.length <= 0) return String(rawValue ?? fallbackValue ?? def?.defaultValue ?? "");
+  const rv = String(rawValue ?? "").trim();
+  if (opts.includes(rv)) return rv;
+  const fv = String(fallbackValue ?? "").trim();
+  if (opts.includes(fv)) return fv;
+  const dv = String(def?.defaultValue ?? "").trim();
+  if (opts.includes(dv)) return dv;
+  return opts[0];
+}
+
 function normalizeUiSettings(raw) {
   const normalized = buildDefaultUiSettings();
   if (!raw || typeof raw !== "object") return normalized;
@@ -757,6 +858,10 @@ function normalizeUiSettings(raw) {
     const v = raw[def.key];
     if (def.type === "number") {
       normalized[def.key] = normalizeUiSettingNumber(def, v, normalized[def.key]);
+      continue;
+    }
+    if (def.type === "select") {
+      normalized[def.key] = normalizeUiSettingSelect(def, v, normalized[def.key]);
       continue;
     }
     if (typeof v === "boolean") normalized[def.key] = v;
@@ -794,6 +899,13 @@ function getUiSettingNumber(key, fallback = 0) {
   if (!def || def.type !== "number") return Number(fallback) || 0;
   const raw = uiSettings && typeof uiSettings === "object" ? uiSettings[key] : undefined;
   return normalizeUiSettingNumber(def, raw, fallback);
+}
+
+function getUiSettingSelect(key, fallback = "") {
+  const def = UI_SETTING_DEF_MAP.get(key);
+  if (!def || def.type !== "select") return String(fallback ?? "");
+  const raw = uiSettings && typeof uiSettings === "object" ? uiSettings[key] : undefined;
+  return normalizeUiSettingSelect(def, raw, fallback);
 }
 
 function getHistoryPlayIntervalMs() {
@@ -920,7 +1032,61 @@ function initHistoryDividerDrag() {
 
 function renderMiscSettingInputs() {
   if (!ui.miscSettingList) return;
+  const activeTab = normalizeMiscSettingTabKey(activeMiscSettingTab);
+  activeMiscSettingTab = activeTab;
+
+  if (ui.miscTabBar) {
+    ui.miscTabBar.innerHTML = "";
+    for (const tab of MISC_SETTING_TABS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `misc-tab${tab.key === activeTab ? " active" : ""}`;
+      btn.textContent = tab.label;
+      btn.dataset.miscTab = tab.key;
+      btn.addEventListener("click", () => {
+        if (tab.key === activeMiscSettingTab) return;
+        syncUiSettingsFromInputs();
+        activeMiscSettingTab = tab.key;
+        renderMiscSettingInputs();
+      });
+      ui.miscTabBar.appendChild(btn);
+    }
+  }
+
   ui.miscSettingList.innerHTML = "";
+
+  const appendSelectSettingRow = (def) => {
+    const row = document.createElement("div");
+    row.className = "misc-setting-number-row";
+
+    const label = document.createElement("label");
+    label.className = "misc-setting-number-label";
+    label.textContent = def.label;
+    row.appendChild(label);
+
+    const select = document.createElement("select");
+    select.className = "misc-setting-number-input";
+    select.dataset.settingKey = def.key;
+    const options = Array.isArray(def.options) ? def.options : [];
+    const current = getUiSettingSelect(def.key, def.defaultValue);
+    for (const rawOpt of options) {
+      const optVal = String(rawOpt || "");
+      const op = document.createElement("option");
+      op.value = optVal;
+      op.textContent = optVal;
+      if (optVal === current) op.selected = true;
+      select.appendChild(op);
+    }
+    row.appendChild(select);
+
+    if (def.note) {
+      const note = document.createElement("small");
+      note.className = "misc-setting-note";
+      note.textContent = def.note;
+      row.appendChild(note);
+    }
+    ui.miscSettingList.appendChild(row);
+  };
 
   const appendNumberSettingRow = (def) => {
     const row = document.createElement("div");
@@ -950,19 +1116,7 @@ function renderMiscSettingInputs() {
     ui.miscSettingList.appendChild(row);
   };
 
-  const panelTitle = document.createElement("div");
-  panelTitle.className = "misc-section-title";
-  panelTitle.textContent = "表示";
-  ui.miscSettingList.appendChild(panelTitle);
-
-  const displayDefs = UI_SETTING_DEFS.filter((def) => (def.section || "display") === "display");
-  for (const def of displayDefs) {
-    if (def.hideInMisc) continue;
-    if (def.type === "number") {
-      appendNumberSettingRow(def);
-      continue;
-    }
-    if (def.type !== "boolean") continue;
+  const appendBooleanSettingRow = (def) => {
     const label = document.createElement("label");
     label.className = "rule-flag misc-setting-row";
 
@@ -993,26 +1147,37 @@ function renderMiscSettingInputs() {
     label.appendChild(input);
     label.appendChild(textWrap);
     ui.miscSettingList.appendChild(label);
-  }
+    if (def.key === "show_attack_overlay") {
+      input.addEventListener("change", () => {
+        syncUiSettingsFromInputs();
+        renderMiscSettingInputs();
+      });
+    }
+  };
 
-  const playbackDefs = UI_SETTING_DEFS.filter((def) => def.section === "playback");
-  if (playbackDefs.length > 0) {
-    const playbackTitle = document.createElement("div");
-    playbackTitle.className = "misc-section-title";
-    playbackTitle.textContent = "棋譜再生";
-    ui.miscSettingList.appendChild(playbackTitle);
+  const panelTitle = document.createElement("div");
+  panelTitle.className = "misc-section-title";
+  panelTitle.textContent = activeTab === "attack" ? "利き表示" : (MISC_SETTING_TAB_LABELS[activeTab] || "表示");
+  ui.miscSettingList.appendChild(panelTitle);
 
-    for (const def of playbackDefs) {
-      if (def.hideInMisc) continue;
-      if (def.type !== "number") continue;
+  const baseDefs = UI_SETTING_DEFS.filter(
+    (def) => !def.hideInMisc && localMiscSettingTabKeyForDef(def) === activeTab,
+  );
+  for (const def of baseDefs) {
+    if (def.type === "number") {
       appendNumberSettingRow(def);
+      continue;
+    }
+    if (def.type === "select") {
+      appendSelectSettingRow(def);
+      continue;
+    }
+    if (def.type === "boolean") {
+      appendBooleanSettingRow(def);
     }
   }
 
-  const attackTitle = document.createElement("div");
-  attackTitle.className = "misc-section-title";
-  attackTitle.textContent = "利き表示";
-  ui.miscSettingList.appendChild(attackTitle);
+  if (activeTab !== "attack") return;
 
   const attackOpts = attackOverlayOptions || buildDefaultAttackOverlayOptions();
   const overlayEnabled = Boolean(uiSettings?.show_attack_overlay);
@@ -1067,15 +1232,14 @@ function renderMiscSettingInputs() {
     label.appendChild(textWrap);
     ui.miscSettingList.appendChild(label);
   }
-
 }
 
 function syncUiSettingsFromInputs() {
   if (!ui.miscSettingList) return;
   const next = normalizeUiSettings(uiSettings);
-  const inputs = ui.miscSettingList.querySelectorAll("input[data-setting-key]");
-  for (const input of inputs) {
-    const key = input.dataset.settingKey;
+  const settingInputs = ui.miscSettingList.querySelectorAll("[data-setting-key]");
+  for (const input of settingInputs) {
+    const key = input.dataset?.settingKey;
     if (!Object.prototype.hasOwnProperty.call(next, key)) continue;
     const def = UI_SETTING_DEF_MAP.get(key);
     if (!def) continue;
@@ -1083,11 +1247,15 @@ function syncUiSettingsFromInputs() {
       next[key] = normalizeUiSettingNumber(def, input.value, next[key]);
       continue;
     }
+    if (def.type === "select") {
+      next[key] = normalizeUiSettingSelect(def, input.value, next[key]);
+      continue;
+    }
     next[key] = Boolean(input.checked);
   }
   uiSettings = normalizeUiSettings(next);
 
-  const nextAttack = buildDefaultAttackOverlayOptions();
+  const nextAttack = normalizeAttackOverlayOptions(attackOverlayOptions || {});
   const attackInputs = ui.miscSettingList.querySelectorAll("input[type='checkbox'][data-attack-key]");
   for (const input of attackInputs) {
     const key = input.dataset.attackKey;
@@ -1105,6 +1273,15 @@ function openMiscDialog() {
   if (!ui.miscDialog) return;
   renderMiscSettingInputs();
   if (!ui.miscDialog.open) ui.miscDialog.showModal();
+}
+
+function closeHelpDialog() {
+  if (ui.helpDialog?.open) ui.helpDialog.close();
+}
+
+function openHelpDialog() {
+  if (!ui.helpDialog) return;
+  if (!ui.helpDialog.open) ui.helpDialog.showModal();
 }
 
 function closeCustomFairyDialog() {
@@ -1169,6 +1346,7 @@ async function applyUiSettings() {
     applyStateEnvelope(envRules);
   }
   applyHistoryMainColumnSetting();
+  applyBoardPieceScaleSettings();
   saveAttackOverlayOptions();
   if (JSON.stringify(attackOverlayOptions || {}) !== prevAttackKey) {
     invalidateAttackOverlayCache();
@@ -1192,9 +1370,21 @@ function applyPanelVisibility(isEdit) {
   if (ui.logPanel) ui.logPanel.hidden = !showLog;
   if (ui.pieceBoxSidePanel) ui.pieceBoxSidePanel.hidden = !isEdit;
 }
+
+function applyBoardPieceScaleSettings() {
+  if (IS_WORKER_CONTEXT || typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (!root) return;
+  const boardScale = getUiSettingNumber("board_scale_percent", 100) / 100;
+  const pieceScale = getUiSettingNumber("piece_scale_percent", 100) / 100;
+  root.style.setProperty("--board-scale", String(boardScale));
+  root.style.setProperty("--piece-scale", String(pieceScale));
+}
+
 uiSettings = loadUiSettings();
 if (!IS_WORKER_CONTEXT) {
   applyHistoryMainColumnSetting();
+  applyBoardPieceScaleSettings();
 }
 
 function buildDefaultAttackOverlayOptions() {
@@ -1277,6 +1467,85 @@ function logLine(text, isError = false) {
   logs.unshift(`[${stamp}] ${isError ? "ERROR: " : ""}${text}`);
   while (logs.length > 120) logs.pop();
   if (ui.logArea) ui.logArea.textContent = logs.join("\n");
+}
+
+function currentLegalRejectKey() {
+  return `${String(sessionId || "")}:${Number(revision || 0)}`;
+}
+
+function legalMoveSignatureForReject(mv) {
+  if (!mv || typeof mv !== "object") return "";
+  const kind = String(mv.kind || "");
+  if (kind === "move") {
+    const from = mv.from ? `${Number(mv.from.x)},${Number(mv.from.y)}` : "-";
+    const to = mv.to ? `${Number(mv.to.x)},${Number(mv.to.y)}` : "-";
+    const rb =
+      mv.rebirth && localInBoard(Number(mv.rebirth.x), Number(mv.rebirth.y))
+        ? `${Number(mv.rebirth.x)},${Number(mv.rebirth.y)}`
+        : "-";
+    const step =
+      mv?.take_make?.step_to && localInBoard(Number(mv.take_make.step_to.x), Number(mv.take_make.step_to.y))
+        ? `${Number(mv.take_make.step_to.x)},${Number(mv.take_make.step_to.y)}`
+        : "-";
+    const capAt =
+      mv?.take_make?.capture_at && localInBoard(Number(mv.take_make.capture_at.x), Number(mv.take_make.capture_at.y))
+        ? `${Number(mv.take_make.capture_at.x)},${Number(mv.take_make.capture_at.y)}`
+        : "-";
+    return [
+      "m",
+      Number(mv.owner),
+      String(mv.name || ""),
+      from,
+      to,
+      mv.promote ? "p1" : "p0",
+      mv.messigny_swap ? "ms1" : "ms0",
+      `rb=${rb}`,
+      `st=${step}`,
+      `cap=${capAt}`,
+    ].join("|");
+  }
+  if (kind === "drop") {
+    const to = mv.to ? `${Number(mv.to.x)},${Number(mv.to.y)}` : "-";
+    const token = String(mv.hand_token || mv.name || "");
+    return ["d", Number(mv.owner), token, to].join("|");
+  }
+  return "";
+}
+
+function pruneRejectedLegalCache() {
+  while (rejectedLegalByPosition.size > REJECTED_LEGAL_BY_POSITION_MAX) {
+    const it = rejectedLegalByPosition.keys().next();
+    if (it.done) break;
+    rejectedLegalByPosition.delete(it.value);
+  }
+}
+
+function getRejectedLegalSet(key = currentLegalRejectKey()) {
+  const k = String(key || "");
+  if (!k) return null;
+  let set = rejectedLegalByPosition.get(k);
+  if (!(set instanceof Set)) {
+    set = new Set();
+    rejectedLegalByPosition.set(k, set);
+    pruneRejectedLegalCache();
+  }
+  return set;
+}
+
+function markRejectedLegalMove(mv) {
+  const sig = legalMoveSignatureForReject(mv);
+  if (!sig) return;
+  const set = getRejectedLegalSet();
+  if (!set) return;
+  set.add(sig);
+}
+
+function filterRejectedLegalMoves(moves) {
+  const arr = Array.isArray(moves) ? moves : [];
+  if (arr.length <= 0) return [];
+  const set = rejectedLegalByPosition.get(currentLegalRejectKey());
+  if (!(set instanceof Set) || set.size <= 0) return arr;
+  return arr.filter((mv) => !set.has(legalMoveSignatureForReject(mv)));
 }
 
 async function api(path, options = {}, internal = {}) {
@@ -1396,11 +1665,15 @@ function createHttpEngine() {
         method: "POST",
         body: { expected_revision: expectedRevision, sfen },
       }),
-    ioLoadKifu: (sid, expectedRevision, kifu) =>
-      api(`/api/v1/sessions/${sid}/io/load-kifu`, {
+    ioLoadKifu: (sid, expectedRevision, kifu, options = {}) => {
+      const opt = options && typeof options === "object" ? options : {};
+      const body = { expected_revision: expectedRevision, kifu };
+      if (opt.moves_only) body.moves_only = true;
+      return api(`/api/v1/sessions/${sid}/io/load-kifu`, {
         method: "POST",
-        body: { expected_revision: expectedRevision, kifu },
-      }),
+        body,
+      });
+    },
     ioExportSfen: (sid) => api(`/api/v1/sessions/${sid}/io/export-sfen`),
     ioExportKifuText: (sid) => api(`/api/v1/sessions/${sid}/io/export-kifu?format=text`),
   };
@@ -2234,7 +2507,7 @@ function localBuildMetaFallback() {
   for (const name of Object.keys(LOCAL_PIECE_SPECS)) {
     if (!displayMap[name]) displayMap[name] = name;
   }
-  const standardTop = ["玉", "王", "飛", "角", "金", "銀", "桂", "香", "歩", "龍", "馬", "と", "成香", "成桂", "成銀"];
+  const standardTop = ["玉", "飛", "角", "金", "銀", "桂", "香", "歩", "龍", "馬", "と", "成香", "成桂", "成銀"];
   const pieceNames = [...standardTop];
   for (const name of Object.keys(LOCAL_PIECE_SPECS)) {
     if (!pieceNames.includes(name)) pieceNames.push(name);
@@ -2690,7 +2963,9 @@ function localFreezePositionValue(value) {
   return value;
 }
 
-function localPositionKeyFromPiecesHands(pieces, hands, includeTurn = false, turn = 0) {
+function localPositionKeyFromPiecesHands(pieces, hands, includeTurn = false, turn = 0, options = null) {
+  const opts = options && typeof options === "object" ? options : {};
+  const ignoreAttrs = Boolean(opts.ignoreAttrs);
   const pieceRows = (pieces || [])
     .filter((p) => p && localInBoard(Number(p.x), Number(p.y)))
     .map((p) => [
@@ -2698,7 +2973,7 @@ function localPositionKeyFromPiecesHands(pieces, hands, includeTurn = false, tur
       Number(p.y),
       String(p.name || ""),
       Number(p.owner),
-      localFreezePositionValue(p?.attrs && typeof p.attrs === "object" ? p.attrs : {}),
+      ignoreAttrs ? null : localFreezePositionValue(p?.attrs && typeof p.attrs === "object" ? p.attrs : {}),
     ])
     .sort((a, b) => {
       if (a[0] !== b[0]) return a[0] - b[0];
@@ -2795,30 +3070,47 @@ function localCurrentPositionRepeatInfoInHistory(ctx) {
   const byId = localHistoryNodeMap(ctx);
   const cur = localHistoryCurrentNode(ctx);
   if (!cur) return { count: 0, matchedPly: null, matchedPlies: [] };
-  const targetKey = localSnapshotPositionKeyWithTurn(cur, ctx?.state);
-  if (!targetKey) return { count: 0, matchedPly: null, matchedPlies: [] };
-  let count = 0;
-  let matchedPly = null;
-  const matchedPlies = [];
-  let node = cur;
-  let guard = 0;
-  const maxSteps = Math.max(300, byId.size * 3);
-  while (node && guard < maxSteps) {
-    guard += 1;
-    const key = localSnapshotPositionKeyWithTurn(node, null);
-    if (key === targetKey) {
-      count += 1;
-      const ply = Number.parseInt(node?.ply, 10);
-      const normalizedPly = Number.isFinite(ply) && ply >= 0 ? ply : 0;
-      matchedPlies.push(normalizedPly);
-      if (node !== cur && matchedPly === null) {
-        matchedPly = normalizedPly;
+  const countByMode = (ignoreAttrs) => {
+    const targetKey = localPositionKeyFromPiecesHands(
+      Array.isArray(cur?.snapshot_pieces) ? cur.snapshot_pieces : ctx?.state?.board?.pieces || [],
+      cur?.snapshot_hands && typeof cur.snapshot_hands === "object" ? cur.snapshot_hands : ctx?.state?.hands || { "0": [], "1": [] },
+      true,
+      Number.isInteger(cur?.snapshot_turn) ? Number(cur.snapshot_turn) : Number(ctx?.state?.turn || 0),
+      { ignoreAttrs }
+    );
+    if (!targetKey) return { count: 0, matchedPly: null, matchedPlies: [] };
+    let count = 0;
+    let matchedPly = null;
+    const matchedPlies = [];
+    let node = cur;
+    let guard = 0;
+    const maxSteps = Math.max(300, byId.size * 3);
+    while (node && guard < maxSteps) {
+      guard += 1;
+      const key = localPositionKeyFromPiecesHands(
+        Array.isArray(node?.snapshot_pieces) ? node.snapshot_pieces : [],
+        node?.snapshot_hands && typeof node.snapshot_hands === "object" ? node.snapshot_hands : { "0": [], "1": [] },
+        true,
+        Number.isInteger(node?.snapshot_turn) ? Number(node.snapshot_turn) : Number(node?.turn || 0),
+        { ignoreAttrs }
+      );
+      if (key === targetKey) {
+        count += 1;
+        const ply = Number.parseInt(node?.ply, 10);
+        const normalizedPly = Number.isFinite(ply) && ply >= 0 ? ply : 0;
+        matchedPlies.push(normalizedPly);
+        if (node !== cur && matchedPly === null) {
+          matchedPly = normalizedPly;
+        }
       }
+      if (!node.parent_id) break;
+      node = byId.get(node.parent_id) || null;
     }
-    if (!node.parent_id) break;
-    node = byId.get(node.parent_id) || null;
-  }
-  return { count, matchedPly, matchedPlies };
+    return { count, matchedPly, matchedPlies };
+  };
+  const strict = countByMode(false);
+  if (Number(strict?.count || 0) >= 2) return strict;
+  return countByMode(true);
 }
 
 function localCurrentPositionRepeatCountInHistory(ctx) {
@@ -3088,6 +3380,7 @@ function localSerializeLegal(ctx) {
       owner: move?.owner ?? null,
       name: move?.name ?? null,
       promote: move?.kind === "move" ? Boolean(move?.promote) : null,
+      messigny_swap: move?.kind === "move" ? Boolean(move?.messigny_swap) : null,
       rebirth: move?.kind === "move" ? localSerializeCoord(move?.rebirth) : null,
       notation: String(move?.notation || ""),
       target_node_id: null,
@@ -3554,7 +3847,12 @@ function localReplayMoveMatchesSpec(mv, spec) {
   if (spec.neutralPiece === true && !Boolean(mv.neutral_piece)) return false;
   if (!mv.to) return false;
   if (spec.takeMakeStep) {
-    const step = mv?.take_make?.step_to;
+    const step =
+      mv?.take_make?.step_to && localInBoard(mv.take_make.step_to.x, mv.take_make.step_to.y)
+        ? mv.take_make.step_to
+        : mv?.locust_capture && localInBoard(mv.locust_capture.x, mv.locust_capture.y)
+          ? mv.locust_capture
+          : null;
     if (!step) return false;
     if (Number(step.x) !== Number(spec.takeMakeStep.x) || Number(step.y) !== Number(spec.takeMakeStep.y)) {
       return false;
@@ -3641,7 +3939,12 @@ function localFindLegalByReplaySpec(ctx, spec, options = {}) {
     if (spec.owner !== null && Number(mv.owner) !== Number(spec.owner)) return false;
     if (spec.neutralPiece === true && !Boolean(mv.neutral_piece)) return false;
     if (spec.takeMakeStep) {
-      const step = mv?.take_make?.step_to;
+      const step =
+        mv?.take_make?.step_to && localInBoard(mv.take_make.step_to.x, mv.take_make.step_to.y)
+          ? mv.take_make.step_to
+          : mv?.locust_capture && localInBoard(mv.locust_capture.x, mv.locust_capture.y)
+            ? mv.locust_capture
+            : null;
       if (!step) return false;
       if (Number(step.x) !== Number(spec.takeMakeStep.x) || Number(step.y) !== Number(spec.takeMakeStep.y)) {
         return false;
@@ -3658,7 +3961,7 @@ function localFindLegalByReplaySpec(ctx, spec, options = {}) {
   const matchesFallback = (mv) => {
     if (!fallbackTargets) return false;
     const normalized = localNormalizeReplayMatchPieceName(mv?.name);
-    return fallbackTargets.has(normalized) || fallbackTargets.has(localNormalizeReplayMatchPieceName(standardBaseName(normalized)));
+    return fallbackTargets.has(normalized);
   };
 
   const moveCandidates = shared.filter((mv) => mv.kind === "move");
@@ -3701,8 +4004,17 @@ function localFindLegalByMoveText(ctx, targetText, options = {}) {
   if (!spec) return null;
   const bySpec = localFindLegalByReplaySpec(ctx, spec, options);
   if (bySpec) return bySpec;
+  // All-in-Shogi などで move.owner の扱い差異があっても、棋譜読込は落とさない。
+  // まず owner 制約のみ外して再照合する。
+  if (spec.owner !== null && spec.owner !== undefined) {
+    const bySpecRelaxedOwner = localFindLegalByReplaySpec(ctx, { ...spec, owner: null }, options);
+    if (bySpecRelaxedOwner) return bySpecRelaxedOwner;
+  }
   if (spec.rebirth) {
     return localFindLegalByReplaySpec(ctx, { ...spec, rebirth: null }, options);
+  }
+  if (spec.rebirth && spec.owner !== null && spec.owner !== undefined) {
+    return localFindLegalByReplaySpec(ctx, { ...spec, rebirth: null, owner: null }, options);
   }
   return null;
 }
@@ -3727,7 +4039,7 @@ function localParseReplayRankChar(ch) {
 }
 
 function localParseRebirthCoordFromReplayText(rebirthText) {
-  const text = String(rebirthText || "").trim();
+  const text = localNormalizeDigits(localStripReplayOwnerPrefix(String(rebirthText || "").trim()));
   if (text.length < 2) return null;
   const x = localParseReplayFileChar(text[0]);
   const y = localParseReplayRankChar(text[1]);
@@ -4296,22 +4608,19 @@ function localRemoveFromHandArray(hand, name) {
   return true;
 }
 
-function localPieceDisplayNameForNotation(pieceName) {
-  if (displayNames && typeof displayNames === "object" && displayNames[pieceName]) {
-    return displayNames[pieceName];
-  }
-  return String(pieceName || "");
+function localPieceDisplayNameForNotation(pieceName, pieceOwner = null) {
+  return localDisplayPieceNameByOwner(pieceName, pieceOwner);
 }
 
 function localNotationPieceLabel(pieceName, options = {}) {
-  const disp = localPieceDisplayNameForNotation(pieceName);
+  const disp = localPieceDisplayNameForNotation(pieceName, options?.pieceOwner);
   return Boolean(options?.neutralPiece) ? `n${disp}` : disp;
 }
 
 function localMoveNotationText(pieceName, to, opts = {}) {
   const file = 9 - Number(to?.x || 0);
   const rank = Number(to?.y || 0) + 1;
-  const disp = localNotationPieceLabel(pieceName, opts);
+  const disp = localNotationPieceLabel(pieceName, { ...opts, pieceOwner: opts?.pieceOwner });
   const promoteText = opts.promote ? "成" : "";
   const dropText = opts.drop ? "打" : "";
   return `${file}${rank}${disp}${promoteText}${dropText}`;
@@ -4321,10 +4630,10 @@ function localMoveCoordDigitsText(x, y) {
   return `${9 - Number(x)}${Number(y) + 1}`;
 }
 
-function localFormatSquarePieceNotation(x, y, name) {
+function localFormatSquarePieceNotation(x, y, name, owner = null) {
   const file = 9 - Number(x || 0);
   const rank = Number(y || 0) + 1;
-  const disp = localPieceDisplayNameForNotation(name);
+  const disp = localPieceDisplayNameForNotation(name, owner);
   return `${file}${rank}${disp}`;
 }
 
@@ -4353,12 +4662,26 @@ function localPwcWillSwapCapturedPiece(pieces, capturedPiece, fromX, fromY, toX,
 function localPwcSwapNotationSuffix(ctx, owner, fromX, fromY, capturedPiece, includeOwnerPrefix = true) {
   if (!capturedPiece) return "";
   const prefix = includeOwnerPrefix ? localMovePrefixForOwner(ctx, owner) : "";
-  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, capturedPiece.name))}`;
+  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, capturedPiece.name, capturedPiece.owner))}`;
 }
 
 function localRifleReturnNotationSuffix(fromX, fromY, returnPieceName, includeOwnerPrefix = false, owner = 0, ctx = null) {
   const prefix = includeOwnerPrefix ? localMovePrefixForOwner(ctx, owner) : "";
-  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, returnPieceName))}`;
+  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, returnPieceName, owner))}`;
+}
+
+function localRebirthNotationSuffix(ctx, rebirthOwner, x, y, rebirthPieceName) {
+  const ownerNum = Number(rebirthOwner);
+  const hasOwnerPrefix = ownerNum === 0 || ownerNum === 1;
+  const prefix = hasOwnerPrefix ? localMovePrefixForOwner(ctx, ownerNum) : "";
+  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(x, y, rebirthPieceName, ownerNum))}`;
+}
+
+function localMessignySwapNotationSuffix(ctx, swapOwner, fromX, fromY, swapPieceName) {
+  const ownerNum = Number(swapOwner);
+  const hasOwnerPrefix = ownerNum === 0 || ownerNum === 1;
+  const prefix = hasOwnerPrefix ? localMovePrefixForOwner(ctx, ownerNum) : "";
+  return `/${localComposeTokenWithOwnerPrefix(prefix, localFormatSquarePieceNotation(fromX, fromY, swapPieceName, ownerNum))}`;
 }
 
 function localMakeTakeMakeNotation(
@@ -4377,7 +4700,10 @@ function localMakeTakeMakeNotation(
   const prefix = localMovePrefixForOwner(ctx, owner);
   const stepCoord = localMoveCoordText(ctx, stepToX, stepToY);
   const finalCoord = localMoveCoordDigitsText(finalToX, finalToY);
-  const dispName = localNotationPieceLabel(name, notationOptions);
+  const dispName = localNotationPieceLabel(name, {
+    ...notationOptions,
+    pieceOwner: notationOptions?.pieceOwner ?? owner,
+  });
   let suffix = "";
   if (Boolean(promote)) {
     suffix = "成";
@@ -4608,19 +4934,33 @@ function localMakeMoveNotation(ctx, owner, name, toX, toY, promote, isDrop, from
   const prefix = localMovePrefixForOwner(ctx, owner);
   const coordStr = localMoveCoordText(ctx, toX, toY);
   const neutralPiece = Boolean(options?.neutralPiece);
-  const dispName = localNotationPieceLabel(name, { neutralPiece });
+  const notationPieceOwner =
+    options && Object.prototype.hasOwnProperty.call(options, "pieceOwner") ? Number(options.pieceOwner) : Number(owner);
+  const dispName = localNotationPieceLabel(name, { neutralPiece, pieceOwner: notationPieceOwner });
+  const locustCaptureCoord =
+    options?.locustCapture && localInBoard(Number(options.locustCapture.x), Number(options.locustCapture.y))
+      ? { x: Number(options.locustCapture.x), y: Number(options.locustCapture.y) }
+      : null;
+  const locustStepNotation =
+    !isDrop &&
+    !!locustCaptureCoord &&
+    (String(name || "") === "Locust" || String(name || "") === "Siren" || String(name || "") === "Triton");
   const suppressRelative = Boolean(options?.suppressRelative);
+  const explicitMessignySwap =
+    typeof options?.messignySwap === "boolean" ? Boolean(options.messignySwap) : null;
 
   let relativeStr = "";
-  let isMessignySwapNotation = false;
+  let isMessignySwapNotation = explicitMessignySwap === true;
   if (!isDrop && fromX !== null && fromY !== null && !suppressRelative) {
     const candidates = [];
-    const targetPiece = localFindPieceInList(pieces, toX, toY);
-    isMessignySwapNotation =
-      Boolean(rules?.messigny) &&
-      !!targetPiece &&
-      Number(targetPiece.owner) !== Number(owner) &&
-      String(targetPiece.name || "") === String(name || "");
+    if (explicitMessignySwap === null) {
+      const targetPiece = localFindPieceInList(pieces, toX, toY);
+      isMessignySwapNotation =
+        Boolean(rules?.messigny) &&
+        !!targetPiece &&
+        Number(targetPiece.owner) !== Number(owner) &&
+        String(targetPiece.name || "") === String(name || "");
+    }
     for (const p of pieces) {
       if (!p) continue;
       if (Number(p.owner) !== Number(owner)) continue;
@@ -4677,19 +5017,20 @@ function localMakeMoveNotation(ctx, owner, name, toX, toY, promote, isDrop, from
       suffix = "生";
     }
   }
-  return localComposeTokenWithOwnerPrefix(prefix, `${coordStr}${dispName}${relativeStr}${suffix}`);
+  const leadCoord = locustStepNotation ? `${localMoveCoordText(ctx, locustCaptureCoord.x, locustCaptureCoord.y)}-` : "";
+  return localComposeTokenWithOwnerPrefix(prefix, `${leadCoord}${coordStr}${dispName}${relativeStr}${suffix}`);
 }
 
 function localDropNeedsSuffix(ctx, owner, name, toX, toY, coordStr = null) {
   const pieces = Array.isArray(ctx?.state?.board?.pieces) ? ctx.state.board.pieces : [];
   const rules = ctx?.state?.rules && typeof ctx.state.rules === "object" ? ctx.state.rules : {};
   const coord = coordStr || localMoveCoordText(ctx, toX, toY);
-  const dispName = localPieceDisplayNameForNotation(name);
+  const dispName = localPieceDisplayNameForNotation(name, owner);
   const dropBody = `${coord}${dispName}`;
   for (const p of pieces) {
     if (!p) continue;
     if (Number(p.owner) !== Number(owner)) continue;
-    if (localPieceDisplayNameForNotation(p.name) !== dispName) continue;
+    if (localPieceDisplayNameForNotation(p.name, p.owner) !== dispName) continue;
     const moves = localGenerateTargetsForPiece(pieces, p, rules, { mode: "move" });
     if (!moves.some((m) => Number(m.x) === Number(toX) && Number(m.y) === Number(toY))) continue;
     const boardMove = localMakeMoveNotation(ctx, owner, p.name, toX, toY, false, false, p.x, p.y);
@@ -4704,7 +5045,8 @@ function localGetCirceRebirthCandidates(
   pieceName,
   owner,
   capturePos,
-  movingPiecePos = null
+  movingPiecePos = null,
+  rules = {}
 ) {
   const baseName = standardBaseName(pieceName);
   const startsRaw = LOCAL_CIRCE_START_POS_SENTE[baseName];
@@ -4731,6 +5073,32 @@ function localGetCirceRebirthCandidates(
   for (const s of closest) {
     const occ = localFindPieceInList(pieces, s.x, s.y);
     if (occ && !(moving && s.x === moving.x && s.y === moving.y)) continue;
+    if (baseName === "歩" && !rules?.allow_double_fu) {
+      let fuCount = localCountFuInFile(pieces, s.x, Number(owner));
+      const capturedAt = localFindPieceInList(pieces, cap.x, cap.y);
+      if (
+        capturedAt &&
+        String(capturedAt.name || "") === "歩" &&
+        Number(capturedAt.owner) === Number(owner) &&
+        Number(cap.x) === Number(s.x)
+      ) {
+        fuCount -= 1;
+      }
+      if (
+        moving &&
+        Number(moving.x) === Number(s.x)
+      ) {
+        const movingPiece = localFindPieceInList(pieces, moving.x, moving.y);
+        if (
+          movingPiece &&
+          String(movingPiece.name || "") === "歩" &&
+          Number(movingPiece.owner) === Number(owner)
+        ) {
+          fuCount -= 1;
+        }
+      }
+      if (fuCount > 0) continue;
+    }
     out.push({ x: s.x, y: s.y });
   }
   return out;
@@ -4833,6 +5201,9 @@ function localFindMatchingLegalMove(ctx, kind, body) {
       if (!localCoordsEqual(mv.from, body.from)) continue;
       if (!localCoordsEqual(mv.to, body.to)) continue;
       if (Boolean(mv.promote) !== Boolean(body.promote)) continue;
+      if (typeof body?.messigny_swap === "boolean" && typeof mv?.messigny_swap === "boolean") {
+        if (Boolean(mv.messigny_swap) !== Boolean(body.messigny_swap)) continue;
+      }
       if (mv.rebirth || body.rebirth) {
         if (!localCoordsEqual(mv.rebirth, body.rebirth || null)) continue;
       }
@@ -4940,6 +5311,7 @@ function localApplyMoveCore(ctx, body) {
   }
   const noTouch = Boolean(body?.no_touch || body?.noTouch);
   const skipStateBackup = Boolean(body?.skip_state_backup || body?.skipStateBackup);
+  const skipLegalPrecompute = Boolean(body?.skip_legal_precompute || body?.skipLegalPrecompute);
 
   const from = localCoordFromInput(body?.from, "from");
   const to = localCoordFromInput(body?.to, "to");
@@ -4951,11 +5323,22 @@ function localApplyMoveCore(ctx, body) {
     throw localApiError("INVALID_MOVE", "piece not found at from");
   }
   const allInShogi = Boolean(ctx.state?.rules?.all_in_shogi);
-  if (!ctx.legal || !Array.isArray(ctx.legal.moves) || ctx.legal.moves.length === 0) {
-    localComputeLegalAll(ctx);
+  let legalMv =
+    body?.prevalidated_move && typeof body.prevalidated_move === "object"
+      ? cloneJson(body.prevalidated_move)
+      : null;
+  if (!legalMv) {
+    if (!skipLegalPrecompute) {
+      localComputeLegalAll(ctx);
+    }
+    legalMv = localFindMatchingLegalMove(ctx, "move", {
+      from,
+      to,
+      promote,
+      rebirth,
+      messigny_swap: body?.messigny_swap,
+    });
   }
-
-  const legalMv = localFindMatchingLegalMove(ctx, "move", { from, to, promote, rebirth });
   if (!legalMv) {
     throw localApiError("INVALID_MOVE", "move is not in legal move list");
   }
@@ -5093,6 +5476,7 @@ function localApplyMoveCore(ctx, body) {
   let captured = null;
   let pwcSwapped = false;
   let actualTo = { x: to.x, y: to.y };
+  let rebirthApplied = false;
 
   if (isSwap && targetAtTo) {
     const targetName = targetAtTo.name;
@@ -5159,14 +5543,25 @@ function localApplyMoveCore(ctx, body) {
           movedPiece.y = rebirth.y;
           ctx.state.board.pieces.push(movedPiece);
           actualTo = { x: rebirth.x, y: rebirth.y };
+          rebirthApplied = true;
         }
       } else if (rules.circe) {
+        let canRebirth = false;
         if (rebirth && localInBoard(rebirth.x, rebirth.y) && !localFindPiece(ctx.state, rebirth.x, rebirth.y)) {
           const base = standardBaseName(captured.name);
-          ctx.state.board.pieces.push(localMakeBoardPiece(rebirth.x, rebirth.y, base, capturedOwner, {}, ctx));
-        } else {
+          let nifu = false;
+          if (base === "歩" && !rules.allow_double_fu) {
+            nifu = localCountFuInFile(ctx.state.board.pieces, rebirth.x, capturedOwner) > 0;
+          }
+          if (!nifu) {
+            ctx.state.board.pieces.push(localMakeBoardPiece(rebirth.x, rebirth.y, base, capturedOwner, {}, ctx));
+            canRebirth = true;
+          }
+        }
+        if (!canRebirth) {
           localAddCapturedPieceToHandByState(ctx.state, movingOwner, captured, ctx);
         }
+        rebirthApplied = canRebirth;
       } else {
         localAddCapturedPieceToHandByState(ctx.state, movingOwner, captured, ctx);
       }
@@ -5211,8 +5606,38 @@ function localApplyMoveCore(ctx, body) {
     if (!noTouch) {
       localRefreshAllPieceEffectiveAttrs(ctx);
     }
+    if (!Boolean(rules.allow_check_on_self)) {
+      const selfCheckOwner = Number(ctx.state.turn) === 1 ? 1 : 0;
+      const checkedMoveLike = {
+        ...legalMv,
+        from: { x: Number(from.x), y: Number(from.y) },
+        to: { x: Number(actualTo.x), y: Number(actualTo.y) },
+        promote: Boolean(promote),
+      };
+      const checkedSimInfo = localCandidateLastMoveInfo(checkedMoveLike);
+      const checkedSimMoveStr = String(legalMv?.notation || "");
+      const selfChecked = localIsSelfCheckedAfterMoveState(
+        ctx.state?.board?.pieces || [],
+        localCloneHands(ctx.state?.hands),
+        selfCheckOwner,
+        rules,
+        checkedSimInfo,
+        checkedSimMoveStr,
+        ctx,
+        checkedMoveLike,
+        false
+      );
+      if (selfChecked) {
+        throw localApiError("INVALID_MOVE", "move leaves own king in check");
+      }
+    }
+    const suppressMismatchedRebirthNotation =
+      Boolean(legalMv?.rebirth) &&
+      Boolean(captured) &&
+      (rules?.circe || rules?.anti_circe) &&
+      !rebirthApplied;
     let notation =
-      legalMv?.notation ||
+      (!suppressMismatchedRebirthNotation && legalMv?.notation) ||
       `${localMakeMoveNotation(
         ctx,
         movingOwner,
@@ -5223,10 +5648,27 @@ function localApplyMoveCore(ctx, body) {
         false,
         from.x,
         from.y,
-        { suppressRelative: pwcSwapped, neutralPiece: Number(moving.owner) === -1 }
+        {
+          suppressRelative: pwcSwapped,
+          neutralPiece: Number(moving.owner) === -1,
+          pieceOwner: Number(moving.owner),
+          locustCapture:
+            legalMv?.locust_capture && localInBoard(Number(legalMv.locust_capture.x), Number(legalMv.locust_capture.y))
+              ? { x: Number(legalMv.locust_capture.x), y: Number(legalMv.locust_capture.y) }
+              : null,
+        }
       )}${localImitatorSuffixFromPlan(
         imitatorPlan
       )}`;
+    if (!legalMv?.notation && isSwap && targetAtToRaw) {
+      notation += localMessignySwapNotationSuffix(
+        ctx,
+        Number(targetAtToRaw.owner),
+        from.x,
+        from.y,
+        targetAtToRaw.name || movingNameBefore
+      );
+    }
     if (!legalMv?.notation && pwcSwapped && captured) {
       notation += localPwcSwapNotationSuffix(ctx, Number(captured.owner), from.x, from.y, captured, true);
     }
@@ -5283,9 +5725,7 @@ function localApplyDropCore(ctx, body) {
   if (localFindPiece(ctx.state, to.x, to.y)) {
     throw localApiError("INVALID_DROP", "destination is occupied");
   }
-  if (!ctx.legal || !Array.isArray(ctx.legal.moves) || ctx.legal.moves.length === 0) {
-    localComputeLegalAll(ctx);
-  }
+  localComputeLegalAll(ctx);
   const legalMv = localFindMatchingLegalMove(ctx, "drop", {
     owner,
     name,
@@ -5314,6 +5754,7 @@ function localApplyDropCore(ctx, body) {
     legalMv?.notation ||
     localMakeMoveNotation(ctx, owner, name, to.x, to.y, false, true, null, null, {
       neutralPiece: pieceOwner === -1,
+      pieceOwner,
     });
   const nextTurn = Number(ctx.state.turn) === 0 ? 1 : 0;
   ctx.state.turn = nextTurn;
@@ -5839,14 +6280,14 @@ const LOCAL_PIECE_SPECS = Object.freeze({
   Siren: {
     type: "mixed",
     parts: [
-      { type: "slide", vectors: LOCAL_VEC_KING },
+      { type: "slide", vectors: LOCAL_VEC_KING, no_capture: true, no_attack: true },
       { type: "locust", vectors: LOCAL_VEC_KING },
     ],
   },
   Triton: {
     type: "mixed",
     parts: [
-      { type: "slide", vectors: LOCAL_VEC_ORTHO },
+      { type: "slide", vectors: LOCAL_VEC_ORTHO, no_capture: true, no_attack: true },
       { type: "locust", vectors: LOCAL_VEC_ORTHO },
     ],
   },
@@ -6373,6 +6814,9 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
     return;
   }
   if (spec.type === "slide") {
+    const slideNoCapture = Boolean(spec?.no_capture);
+    const slideNoAttack = Boolean(spec?.no_attack);
+    if (attackMode && slideNoAttack) return;
     for (const vec of vectors) {
       const [dx, dy] = localMoveVecForOwner(moveOwner, vec);
       let tx = x + dx;
@@ -6391,6 +6835,7 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
           ty += dy;
           continue;
         }
+        if (slideNoCapture) break;
         if (!isFriendlyTarget(t) || attackMode) {
           localPushTarget(out, seen, tx, ty, isCapturableTarget(t));
         }
@@ -6419,7 +6864,7 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
         } else {
           if (t) {
             if (localIsStonePiece(t)) break;
-            if (localIsHolePiece(t) || localIsPyramidPiece(t)) continue;
+            if (localIsHolePiece(t) || localIsPyramidPiece(t)) break;
           }
           if (attackMode || !t || !isFriendlyTarget(t)) {
             localPushTarget(out, seen, tx, ty, isCapturableTarget(t));
@@ -7021,9 +7466,11 @@ function localSimulatePiecesAfterCandidate(pieces, cand, rules = {}, typeAttrsOr
         ? { x: Number(cand.locust_capture.x), y: Number(cand.locust_capture.y) }
         : null;
     const capturePos = takeMakeCaptureAt || locustPos || { x: Number(firstTo.x), y: Number(firstTo.y) };
+    const inferredSwap = localIsMessignySwapTarget(next, moving, firstTo.x, firstTo.y, rules);
     const isSwap =
-      Boolean(cand.messigny_swap) ||
-      localIsMessignySwapTarget(next, moving, firstTo.x, firstTo.y, rules);
+      typeof cand?.messigny_swap === "boolean"
+        ? Boolean(cand.messigny_swap)
+        : inferredSwap;
     const swapSourcesExtra = isSwap ? new Set([`${Number(firstTo.x)},${Number(firstTo.y)}`]) : null;
     const imitatorPlan = Array.isArray(cand?.imitator_plan)
       ? cloneJson(cand.imitator_plan)
@@ -7169,7 +7616,21 @@ function localSimulatePiecesAfterCandidate(pieces, cand, rules = {}, typeAttrsOr
         const rb = cand.rebirth && localInBoard(cand.rebirth.x, cand.rebirth.y) ? cand.rebirth : null;
         if (rb && !findAt(rb.x, rb.y)) {
           const base = standardBaseName(captured.name);
-          next.push(localMakeBoardPiece(rb.x, rb.y, base, capturedOwner, {}, typeAttrsOrCtx));
+          let nifu = false;
+          if (base === "歩" && !rules?.allow_double_fu) {
+            let fuCount = localCountFuInFile(next, rb.x, capturedOwner);
+            if (
+              String(moving?.name || "") === "歩" &&
+              Number(moving?.owner) === Number(capturedOwner) &&
+              Number(actualTo?.x) === Number(rb.x)
+            ) {
+              fuCount += 1;
+            }
+            nifu = fuCount > 0;
+          }
+          if (!nifu) {
+            next.push(localMakeBoardPiece(rb.x, rb.y, base, capturedOwner, {}, typeAttrsOrCtx));
+          }
         }
       }
     }
@@ -7345,6 +7806,12 @@ function localIsMatedByRulesForAnalysis(
   const respectKomaAmariRule = options?.respectKomaAmariRule !== false;
   const allInPrevKey = typeof options?.allInPrevKey === "string" ? options.allInPrevKey : null;
   const analysisIgnoreTorikin = Boolean(options?.analysisIgnoreTorikin);
+  const enforceRecursiveUchifu = Boolean(options?.enforceRecursiveUchifu);
+  const recursionDepthRaw = Number.parseInt(options?.uchifuRecursionDepth, 10);
+  const recursionMaxRaw = Number.parseInt(options?.uchifuRecursionMax, 10);
+  const uchifuRecursionDepth = Number.isFinite(recursionDepthRaw) ? Math.max(0, recursionDepthRaw) : 0;
+  const uchifuRecursionMax = Number.isFinite(recursionMaxRaw) ? Math.max(0, recursionMaxRaw) : 3;
+  const enableRecursiveUchifu = enforceRecursiveUchifu && uchifuRecursionDepth < uchifuRecursionMax;
   const typeAttrsOrCtx = options?.typeAttrsOrCtx || null;
   const checkCtx =
     typeAttrsOrCtx && typeof typeAttrsOrCtx === "object" && typeAttrsOrCtx.state
@@ -7371,9 +7838,11 @@ function localIsMatedByRulesForAnalysis(
   };
   const simCtx = localBuildAnalysisContext(simState, lastMoveInfo, lastMoveStr, allInPrevKey, typeAttrsOrCtx);
   localComputeLegalAll(simCtx, {
-    analysisNoUchifu: true,
+    analysisNoUchifu: !enableRecursiveUchifu,
     analysisIgnoreTorikin,
     skipGlobalRuleFilter: true,
+    uchifuRecursionDepth: uchifuRecursionDepth + 1,
+    uchifuRecursionMax,
   });
   if (Array.isArray(simCtx?.legal?.moves) && simCtx.legal.moves.length > 0) {
     return false;
@@ -7712,7 +8181,8 @@ function localIsIsardamKingCaptureLegal(
       typeAttrsOrCtx
     );
     if (!sim || !sim.board || !Array.isArray(sim.board.pieces)) continue;
-    if (!localHasIsardamConflict(sim.board.pieces, rules)) return true;
+    // Isardam: 王手判定は通常どおりとし、玉取り後の同種利き衝突では無効化しない。
+    return true;
   }
   return false;
 }
@@ -7777,6 +8247,255 @@ function localIsInCheckWithRules(pieces, owner, rules = {}, options = {}) {
   return localGetCheckingPiecePositionsWithRules(pieces, owner, rules, opt).length > 0;
 }
 
+function localSelectCheckTargetKings(pieces, owner) {
+  const list = Array.isArray(pieces) ? pieces : [];
+  const own = list.filter((p) => p && Number(p.owner) === Number(owner) && localPieceIsKing(p));
+  if (Number(owner) === -1) return own;
+  const neutral = list.filter((p) => p && Number(p.owner) === -1 && localPieceIsKing(p));
+  if (own.length <= 0 && neutral.length <= 0) return [];
+  if (neutral.length <= 0) return own;
+  if (own.length <= 0) return neutral;
+  const seen = new Set();
+  const out = [];
+  for (const k of own.concat(neutral)) {
+    const key = `${Number(k?.x)},${Number(k?.y)},${Number(k?.owner)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(k);
+  }
+  return out;
+}
+
+function localIsInCheckViaNeutralFallbackStrict(pieces, owner, rules = {}, options = {}) {
+  const list = Array.isArray(pieces) ? pieces : [];
+  const neutralKings = list.filter((p) => p && Number(p.owner) === -1 && localPieceIsKing(p));
+  if (neutralKings.length <= 0) return false;
+  const opp = Number(owner) === 0 ? 1 : 0;
+  const opt = options && typeof options === "object" ? { ...options } : {};
+  const rawNeutralTurnOwner = Number(opt?.neutralTurnOwner);
+  const neutralTurnOwner =
+    rawNeutralTurnOwner === 0 || rawNeutralTurnOwner === 1 ? rawNeutralTurnOwner : opp;
+  for (const k of neutralKings) {
+    if (
+      localIsSquareAttackedByWithRules(list, Number(k.x), Number(k.y), opp, rules, {
+        ...opt,
+        neutralTurnOwner,
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function localMoveCapturesKingFromPosition(piecesBeforeMove, mv, rules = {}) {
+  if (!mv || mv.kind !== "move") return false;
+  const movingPiece = localFindPieceInList(piecesBeforeMove, mv.from?.x, mv.from?.y);
+  if (!movingPiece) return false;
+  const movingFriendlyOwner = Number(mv?.owner);
+  if (Boolean(mv?.take_make?.captured_is_king)) return true;
+  if (mv?.locust_capture && localInBoard(mv.locust_capture.x, mv.locust_capture.y)) {
+    const locustTarget = localFindPieceInList(piecesBeforeMove, mv.locust_capture.x, mv.locust_capture.y);
+    if (
+      locustTarget &&
+      !localIsFriendlyPieceForMove(movingPiece, Number(locustTarget.owner), movingFriendlyOwner) &&
+      localPieceIsKing(locustTarget)
+    ) {
+      return true;
+    }
+  }
+  if (mv.messigny_swap) return false;
+  if (localImitatorPlanUsesSourceSquare(mv.imitator_plan, mv.to?.x, mv.to?.y)) return false;
+  const targetPiece = localFindPieceInList(piecesBeforeMove, mv.to?.x, mv.to?.y);
+  return Boolean(
+    targetPiece &&
+      !localIsFriendlyPieceForMove(movingPiece, Number(targetPiece.owner), movingFriendlyOwner) &&
+      localPieceIsKing(targetPiece)
+  );
+}
+
+function localMoveCapturedKingFromPosition(piecesBeforeMove, mv, rules = {}) {
+  if (!mv || mv.kind !== "move") return null;
+  const movingPiece = localFindPieceInList(piecesBeforeMove, mv.from?.x, mv.from?.y);
+  if (!movingPiece) return null;
+  const movingFriendlyOwner = Number(mv?.owner);
+  const takeMakeCaptureAt =
+    mv?.take_make?.capture_at && localInBoard(mv.take_make.capture_at.x, mv.take_make.capture_at.y)
+      ? { x: Number(mv.take_make.capture_at.x), y: Number(mv.take_make.capture_at.y) }
+      : null;
+  if (takeMakeCaptureAt) {
+    const captured = localFindPieceInList(piecesBeforeMove, takeMakeCaptureAt.x, takeMakeCaptureAt.y);
+    if (
+      captured &&
+      !localIsFriendlyPieceForMove(movingPiece, Number(captured.owner), movingFriendlyOwner) &&
+      localPieceIsKing(captured)
+    ) {
+      return captured;
+    }
+  }
+  if (mv?.locust_capture && localInBoard(mv.locust_capture.x, mv.locust_capture.y)) {
+    const locustTarget = localFindPieceInList(piecesBeforeMove, mv.locust_capture.x, mv.locust_capture.y);
+    if (
+      locustTarget &&
+      !localIsFriendlyPieceForMove(movingPiece, Number(locustTarget.owner), movingFriendlyOwner) &&
+      localPieceIsKing(locustTarget)
+    ) {
+      return locustTarget;
+    }
+  }
+  if (mv.messigny_swap) return null;
+  if (localImitatorPlanUsesSourceSquare(mv.imitator_plan, mv.to?.x, mv.to?.y)) return null;
+  const targetPiece = localFindPieceInList(piecesBeforeMove, mv.to?.x, mv.to?.y);
+  if (
+    targetPiece &&
+    !localIsFriendlyPieceForMove(movingPiece, Number(targetPiece.owner), movingFriendlyOwner) &&
+    localPieceIsKing(targetPiece)
+  ) {
+    return targetPiece;
+  }
+  return null;
+}
+
+function localHasOpponentKingCaptureMoveByLegalScan(
+  nextPieces,
+  nextHands,
+  selfCheckOwner,
+  rules,
+  simInfo,
+  simMoveStr,
+  ctx
+) {
+  const opp = Number(selfCheckOwner) === 0 ? 1 : 0;
+  const simState = {
+    mode: "play",
+    turn: opp,
+    board: { width: 9, height: 9, pieces: cloneJson(nextPieces || []) },
+    hands: localCloneHands(nextHands),
+    rules: localMergeRulesWithDefaults(rules || {}),
+  };
+  const simCtx = localBuildAnalysisContext(
+    simState,
+    simInfo || null,
+    String(simMoveStr || ""),
+    localPreviousPositionKeyFromContext(ctx),
+    ctx
+  );
+  localComputeLegalAll(simCtx, {
+    skipStatusEvaluation: true,
+    skipNoCheckStatusProbe: true,
+    skipGlobalRuleFilter: true,
+    filterCheckGreedy: false,
+    analysisNoUchifu: true,
+    skipSort: true,
+    skipNeutralSelfCheckLegalScan: true,
+  });
+  const protectedKingOwners = new Set([Number(selfCheckOwner), -1]);
+  const protectedKingCountBefore = (nextPieces || []).filter(
+    (p) => p && protectedKingOwners.has(Number(p.owner)) && localPieceIsKing(p)
+  ).length;
+  const moves = Array.isArray(simCtx?.legal?.moves) ? simCtx.legal.moves : [];
+  for (const mv of moves) {
+    if (!mv || mv.kind !== "move") continue;
+    const capturedKing = localMoveCapturedKingFromPosition(nextPieces, mv, rules);
+    if (capturedKing && protectedKingOwners.has(Number(capturedKing.owner))) return true;
+    // 捕獲位置の推定が難しい合成手(フェアリールール/同時移動)向けの保険:
+    // 1手シミュレーション後に対象側(手番側+中立)の玉枚数が減っていれば玉取りありとみなす。
+    const simAfter = localSimulateStateAfterCandidate(nextPieces, nextHands, opp, mv, rules, ctx);
+    if (!simAfter || !simAfter.board || !Array.isArray(simAfter.board.pieces)) continue;
+    const protectedKingCountAfter = simAfter.board.pieces.filter(
+      (p) => p && protectedKingOwners.has(Number(p.owner)) && localPieceIsKing(p)
+    ).length;
+    if (protectedKingCountAfter < protectedKingCountBefore) return true;
+  }
+  return false;
+}
+
+function localIsInCheckByDirectAttackFallback(pieces, owner, rules = {}, options = {}) {
+  const kings = localSelectCheckTargetKings(pieces, owner);
+  if (!Array.isArray(kings) || kings.length <= 0) return false;
+  const opp = Number(owner) === 0 ? 1 : 0;
+  const turnHints = [opp, Number(owner)];
+  for (const neutralTurnOwner of turnHints) {
+    for (const k of kings) {
+      if (
+        localIsSquareAttackedByWithRules(pieces, Number(k.x), Number(k.y), opp, rules, {
+          ...options,
+          neutralTurnOwner,
+          ignoreCaptureRepeatType: true,
+        })
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function localIsSelfCheckedAfterMoveState(
+  nextPieces,
+  nextHands,
+  selfCheckOwner,
+  rules = {},
+  lastMoveInfo = null,
+  lastMoveStr = "",
+  ctx = null,
+  moveLike = null,
+  skipNeutralSelfCheckLegalScan = false
+) {
+  const baseSelfCheckOpts = {
+    lastMoveInfo: lastMoveInfo || null,
+    lastMoveStr: String(lastMoveStr || ""),
+    ctx,
+  };
+  let selfChecked = localIsInCheckWithRules(nextPieces, selfCheckOwner, rules, {
+    ...baseSelfCheckOpts,
+    neutralTurnOwner: Number(selfCheckOwner) === 0 ? 1 : 0,
+  });
+  if (!selfChecked) {
+    selfChecked = localIsInCheckWithRules(nextPieces, selfCheckOwner, rules, {
+      ...baseSelfCheckOpts,
+      neutralTurnOwner: Number(selfCheckOwner),
+    });
+  }
+  if (!selfChecked) {
+    selfChecked = localIsInCheckViaNeutralFallbackStrict(nextPieces, selfCheckOwner, rules, {
+      ...baseSelfCheckOpts,
+      neutralTurnOwner: Number(selfCheckOwner) === 0 ? 1 : 0,
+    });
+  }
+  if (!selfChecked) {
+    selfChecked = localIsInCheckViaNeutralFallbackStrict(nextPieces, selfCheckOwner, rules, {
+      ...baseSelfCheckOpts,
+      neutralTurnOwner: Number(selfCheckOwner),
+    });
+  }
+  const neutralKings = (nextPieces || []).filter((p) => p && Number(p.owner) === -1 && localPieceIsKing(p));
+  const hasImitatorSync = Array.isArray(moveLike?.imitator_plan) && moveLike.imitator_plan.length > 0;
+  if (!selfChecked && (neutralKings.length > 0 || hasImitatorSync)) {
+    selfChecked = localIsInCheckByDirectAttackFallback(nextPieces, selfCheckOwner, rules, {
+      ...baseSelfCheckOpts,
+    });
+  }
+  const enableExpensiveNeutralKingCaptureScan = false;
+  if (
+    !selfChecked &&
+    enableExpensiveNeutralKingCaptureScan &&
+    !skipNeutralSelfCheckLegalScan &&
+    (neutralKings.length > 0 || hasImitatorSync)
+  ) {
+    selfChecked = localHasOpponentKingCaptureMoveByLegalScan(
+      nextPieces,
+      nextHands,
+      selfCheckOwner,
+      rules,
+      lastMoveInfo,
+      lastMoveStr,
+      ctx
+    );
+  }
+  return Boolean(selfChecked);
+}
+
 function localHasKTakeMakeKingCheckPath(pieces, attacker, kingPos, rules = {}, options = {}) {
   if (!rules?.k_take_make) return true;
   if (!attacker || !localInBoard(attacker.x, attacker.y)) return false;
@@ -7832,7 +8551,7 @@ function localHasKTakeMakeKingCheckPath(pieces, attacker, kingPos, rules = {}, o
 }
 
 function localGetCheckingPiecePositionsWithRules(pieces, owner, rules = {}, options = {}) {
-  const kings = (pieces || []).filter((p) => p && Number(p.owner) === Number(owner) && localPieceIsKing(p));
+  const kings = localSelectCheckTargetKings(pieces, owner);
   if (kings.length === 0) return [];
   const opp = Number(owner) === 0 ? 1 : 0;
   const optNeutralTurnOwner = Number(options?.neutralTurnOwner);
@@ -8361,6 +9080,104 @@ function localHasMovesWithNonCheckAllowed(ctx, owner, options = {}) {
   return false;
 }
 
+function localIsImmediateStalemateForOwnerAfterMove(
+  nextPieces,
+  nextHands,
+  owner,
+  rules = {},
+  lastMoveInfo = null,
+  lastMoveStr = "",
+  ctx = null,
+  options = {}
+) {
+  const side = Number(owner);
+  if (side !== 0 && side !== 1) return false;
+  if (
+    localIsInCheckWithRules(nextPieces, side, rules, {
+      lastMoveInfo,
+      lastMoveStr,
+      neutralTurnOwner: 1 - side,
+      ctx,
+    })
+  ) {
+    return false;
+  }
+  const simState = {
+    mode: "play",
+    turn: side,
+    board: { width: 9, height: 9, pieces: cloneJson(nextPieces || []) },
+    hands: localCloneHands(nextHands),
+    rules: cloneJson(rules || {}),
+  };
+  const allInPrevKey = typeof options?.allInPrevKey === "string" ? options.allInPrevKey : null;
+  const simCtx = localBuildAnalysisContext(
+    simState,
+    lastMoveInfo || null,
+    String(lastMoveStr || ""),
+    allInPrevKey,
+    ctx
+  );
+  localComputeLegalAll(simCtx, {
+    analysisNoUchifu: Boolean(options?.analysisNoUchifu),
+    analysisIgnoreTorikin: Boolean(options?.analysisIgnoreTorikin),
+    skipStatusEvaluation: true,
+    skipNoCheckStatusProbe: true,
+    skipSort: true,
+  });
+  const legal = Array.isArray(simCtx?.legal?.moves) ? simCtx.legal.moves : [];
+  return legal.length === 0;
+}
+
+function localImitatorMoveRejectedByRuntimeSelfCheckProbe(ctx, mv) {
+  if (!ctx || !mv || mv.kind !== "move") return false;
+  if (!Array.isArray(mv?.imitator_plan) || mv.imitator_plan.length <= 0) return false;
+  if (!mv?.from || !mv?.to) return false;
+  try {
+    const currentNode = localHistoryCurrentNode(ctx);
+    const prevPosKey = localPreviousPositionKeyFromContext(ctx);
+    const simState = {
+      mode: "play",
+      turn: Number(ctx?.state?.turn || 0),
+      board: {
+        width: 9,
+        height: 9,
+        pieces: cloneJson(ctx?.state?.board?.pieces || []),
+      },
+      hands: localCloneHands(ctx?.state?.hands),
+      rules: cloneJson(ctx?.state?.rules || {}),
+    };
+    const simCtx = localBuildAnalysisContext(
+      simState,
+      currentNode?.last_move_info || null,
+      String(currentNode?.move_str || ""),
+      prevPosKey,
+      ctx
+    );
+    const body = {
+      expected_revision: Number(simCtx?.revision || 0),
+      from: { x: Number(mv.from.x), y: Number(mv.from.y) },
+      to: { x: Number(mv.to.x), y: Number(mv.to.y) },
+      promote: Boolean(mv.promote),
+      no_touch: true,
+      skip_state_backup: true,
+      skip_legal_precompute: true,
+      prevalidated_move: mv,
+    };
+    if (mv?.rebirth && localInBoard(Number(mv.rebirth.x), Number(mv.rebirth.y))) {
+      body.rebirth = { x: Number(mv.rebirth.x), y: Number(mv.rebirth.y) };
+    }
+    if (typeof mv?.messigny_swap === "boolean") {
+      body.messigny_swap = Boolean(mv.messigny_swap);
+    }
+    localApplyMoveCore(simCtx, body);
+    return false;
+  } catch (e) {
+    const code = String(e?.apiCode || "");
+    const msg = String(e?.apiMessage || e?.message || "");
+    return code === "INVALID_MOVE" && msg.includes("move leaves own king in check");
+  }
+}
+
 function localFilterMovesByRules(ctx, candidates, turn, rules, options = {}) {
   let working = Array.isArray(candidates) ? candidates.slice() : [];
   if (working.length === 0) return [];
@@ -8372,6 +9189,17 @@ function localFilterMovesByRules(ctx, candidates, turn, rules, options = {}) {
     if (m.kind !== "move") return false;
     const toPiece = localFindPieceInList(piecesNow, Number(m?.to?.x), Number(m?.to?.y));
     return Boolean(toPiece);
+  };
+  const isCaptureLike = (m) => {
+    if (!m || m.kind !== "move") return false;
+    if (Boolean(m.capture)) return true;
+    if (m?.take_make?.capture_at && localInBoard(Number(m.take_make.capture_at.x), Number(m.take_make.capture_at.y))) {
+      return true;
+    }
+    if (m?.locust_capture && localInBoard(Number(m.locust_capture.x), Number(m.locust_capture.y))) {
+      return true;
+    }
+    return isCaptureByBoard(m);
   };
 
   if (rules?.cant_repeat_type || rules?.cant_capture_repeat_type) {
@@ -8406,6 +9234,10 @@ function localFilterMovesByRules(ctx, candidates, turn, rules, options = {}) {
       }
       return true;
     });
+  }
+
+  if (rules?.attacker_no_capture && Number(turn) === 0) {
+    working = working.filter((m) => !isCaptureLike(m));
   }
 
   if (rules?.greedy || rules?.abstinence) {
@@ -8453,6 +9285,10 @@ function localFilterMovesByRules(ctx, candidates, turn, rules, options = {}) {
 function localFilterBoardMovesByPiece(ctx, candidates, turn, rules, options = {}) {
   const moves = Array.isArray(candidates) ? candidates : [];
   if (moves.length <= 0) return [];
+  // マキシ/ミニは「駒ごと」ではなく「手番全体の候補」から距離最長/最短を選ぶ。
+  if (rules?.maxi || rules?.mini) {
+    return localFilterMovesByRules(ctx, moves, turn, rules, options);
+  }
   const grouped = new Map();
   for (const mv of moves) {
     if (!mv || mv.kind !== "move" || !mv.from) continue;
@@ -8511,7 +9347,12 @@ function localComputeLegalAll(ctx, options = {}) {
   const skipGlobalRuleFilter = Boolean(options?.skipGlobalRuleFilter);
   const skipStatusEvaluation = Boolean(options?.skipStatusEvaluation);
   const skipSort = Boolean(options?.skipSort);
+  const skipNeutralSelfCheckLegalScan = Boolean(options?.skipNeutralSelfCheckLegalScan);
   const reuseAnnotatedStatePieces = Boolean(options?.reuseAnnotatedStatePieces);
+  const recursionDepthRaw = Number.parseInt(options?.uchifuRecursionDepth, 10);
+  const recursionMaxRaw = Number.parseInt(options?.uchifuRecursionMax, 10);
+  const uchifuRecursionDepth = Number.isFinite(recursionDepthRaw) ? Math.max(0, recursionDepthRaw) : 0;
+  const uchifuRecursionMax = Number.isFinite(recursionMaxRaw) ? Math.max(0, recursionMaxRaw) : 3;
   const rawTargetMoveHint = options?.targetMoveHint && typeof options.targetMoveHint === "object" ? options.targetMoveHint : null;
   const targetMoveHint = rawTargetMoveHint
     ? {
@@ -8532,6 +9373,8 @@ function localComputeLegalAll(ctx, options = {}) {
     Boolean(targetMoveHint) && (targetMoveHint.kind === "move" || targetMoveHint.kind === "drop");
   const allowSelfCheck = Boolean(rules.allow_check_on_self);
   const allowSenteNonCheck = Boolean(rules.allow_sente_non_check);
+  const objective = String(rules.objective || "詰").trim() || "詰";
+  const allowStalemateFinishWithoutCheck = objective === "ステイルメイト";
   const allowDoubleFu = Boolean(rules.allow_double_fu);
   const uchifuMode = localGetUchifuModeFromRules(rules);
   const uchifuEnabled = uchifuMode !== "off";
@@ -8600,6 +9443,7 @@ function localComputeLegalAll(ctx, options = {}) {
       orientationOwner: moveOwner,
       neutralTurnOwner: moveOwner,
     });
+    const normalTargetKeySet = new Set(normalTargets.map((t) => `${t.x},${t.y}`));
     const mergedTargets = [];
     const mergedKeys = new Set();
     for (const t of normalTargets) {
@@ -8626,7 +9470,11 @@ function localComputeLegalAll(ctx, options = {}) {
         }
       }
       const target = pieceMap.get(`${t.x},${t.y}`) || null;
-      const isSwap = localIsMessignySwapTarget(pieces, p, t.x, t.y, rules);
+      const isSwapTarget = localIsMessignySwapTarget(pieces, p, t.x, t.y, rules);
+      const targetKey = `${t.x},${t.y}`;
+      const normalReachable = normalTargetKeySet.has(targetKey);
+      const swapModes = isSwapTarget ? (normalReachable ? [true, false] : [true]) : [false];
+      for (const isSwap of swapModes) {
       const swapSourcesExtra = isSwap ? new Set([`${t.x},${t.y}`]) : null;
       const imitatorPlan = localCalcImitatorSyncPlan(
         pieces,
@@ -8696,7 +9544,8 @@ function localComputeLegalAll(ctx, options = {}) {
           pName,
           pOwner,
           { x: t.x, y: t.y },
-          movingPiecePos
+          movingPiecePos,
+          rules
         );
         if (rb.length > 0) rebirthCandidates = rb;
       }
@@ -8760,12 +9609,13 @@ function localComputeLegalAll(ctx, options = {}) {
               Number(makeTo.x),
               Number(makeTo.y),
               Boolean(promote),
-              { neutralPiece: pieceOwner === -1 }
+              { neutralPiece: pieceOwner === -1, pieceOwner }
             );
             if (imitatorSuffix) notation += imitatorSuffix;
             cands.push({
               kind: "move",
               owner: Number(moveOwner),
+              piece_owner: pieceOwner,
               name: p.name,
               neutral_piece: pieceOwner === -1,
               from: { x: p.x, y: p.y },
@@ -8815,8 +9665,23 @@ function localComputeLegalAll(ctx, options = {}) {
               false,
               p.x,
               p.y,
-              { suppressRelative: isPwcSwapNotation, neutralPiece: pieceOwner === -1 }
+              {
+                suppressRelative: isPwcSwapNotation,
+                neutralPiece: pieceOwner === -1,
+                pieceOwner,
+                messignySwap: isSwap,
+                locustCapture: locustCapture ? { x: Number(locustCapture.pos.x), y: Number(locustCapture.pos.y) } : null,
+              }
             );
+          if (isSwap) {
+            notation += localMessignySwapNotationSuffix(
+              ctx,
+              Number(target?.owner),
+              p.x,
+              p.y,
+              target?.name || p.name
+            );
+          }
           if (imitatorSuffix) notation += imitatorSuffix;
           if (isPwcSwapNotation && capturedForMove) {
             notation += localPwcSwapNotationSuffix(ctx, Number(capturedForMove.owner), p.x, p.y, capturedForMove, true);
@@ -8827,18 +9692,22 @@ function localComputeLegalAll(ctx, options = {}) {
           }
           if (rb) {
             let rbName = effectiveTarget ? effectiveTarget.name : p.name;
+            let rbOwner = null;
             if (rules?.circe && effectiveTarget) {
               // キルケでは取られた駒は生駒で復活する（成駒は成る前の駒名で表記）。
               rbName = standardBaseName(effectiveTarget.name);
+              rbOwner = Number(effectiveTarget.owner);
             } else if (rules?.anti_circe) {
               rbName = promote ? localPiecePromoteTo(p) || p.name : p.name;
+              rbOwner = Number(moveOwner);
             }
-            notation += `/${localFormatSquarePieceNotation(rb.x, rb.y, rbName)}`;
+            notation += localRebirthNotationSuffix(ctx, rbOwner, rb.x, rb.y, rbName);
           }
-          cands.push({
-            kind: "move",
-            owner: Number(moveOwner),
-            name: p.name,
+            cands.push({
+              kind: "move",
+              owner: Number(moveOwner),
+              piece_owner: pieceOwner,
+              name: p.name,
             neutral_piece: pieceOwner === -1,
             from: { x: p.x, y: p.y },
             to: { x: t.x, y: t.y },
@@ -8858,6 +9727,7 @@ function localComputeLegalAll(ctx, options = {}) {
             notation,
           });
         }
+      }
       }
     }
   }
@@ -8899,6 +9769,7 @@ function localComputeLegalAll(ctx, options = {}) {
             capture: false,
             notation: localMakeMoveNotation(ctx, handOwner, name, x, y, false, true, null, null, {
               neutralPiece: handInfo.neutral,
+              pieceOwner: dropPieceOwner,
             }),
           });
         }
@@ -8959,8 +9830,7 @@ function localComputeLegalAll(ctx, options = {}) {
     if (replayPieceExact.has(nm)) return true;
     if (!replayPieceFallback) return false;
     if (replayPieceFallback.has(nm)) return true;
-    const baseNm = localNormalizeReplayMatchPieceName(standardBaseName(nm));
-    return replayPieceFallback.has(baseNm);
+    return false;
   };
   const matchesReplayTarget = (mv) => {
     return matchesReplayTargetRaw(mv);
@@ -9091,15 +9961,29 @@ function localComputeLegalAll(ctx, options = {}) {
     const simInfo = localCandidateLastMoveInfo(mv);
     const simMoveStr = String(mv.notation || "");
 
-    if (
-      !allowSelfCheck &&
-      localIsInCheckWithRules(nextPieces, turn, rules, {
+    if (!allowSelfCheck) {
+      // 自己王手判定は「手番側」を基準にする。
+      // All-in-Shogi などで相手駒を動かす場合も、判定対象は移動駒ownerではなく現在手番側。
+      const selfCheckOwner = Number(turn);
+      const baseSelfCheckOpts = {
         lastMoveInfo: simInfo,
         lastMoveStr: simMoveStr,
-        neutralTurnOwner: postMoveNeutralTurnOwner,
         ctx,
-      })
-    ) {
+      };
+      const selfChecked = localIsSelfCheckedAfterMoveState(
+        nextPieces,
+        nextHands,
+        selfCheckOwner,
+        rules,
+        simInfo,
+        simMoveStr,
+        ctx,
+        mv,
+        skipNeutralSelfCheckLegalScan
+      );
+      if (selfChecked) continue;
+    }
+    if (!allowSelfCheck && localImitatorMoveRejectedByRuntimeSelfCheckProbe(ctx, mv)) {
       continue;
     }
     if (localIsAnnanNifuHostActive(rules) && mv.kind === "move") {
@@ -9211,6 +10095,9 @@ function localComputeLegalAll(ctx, options = {}) {
             allInPrevKey: getCurrentPositionKeyNoTurn(),
             typeAttrsOrCtx: ctx,
             analysisIgnoreTorikin: Boolean(rules?.torikin) && !Boolean(rules?.zentorikin),
+            enforceRecursiveUchifu: true,
+            uchifuRecursionDepth,
+            uchifuRecursionMax,
           })
         ) {
           continue;
@@ -9229,6 +10116,9 @@ function localComputeLegalAll(ctx, options = {}) {
               allInPrevKey: getCurrentPositionKeyNoTurn(),
               typeAttrsOrCtx: ctx,
               analysisIgnoreTorikin: Boolean(rules?.torikin) && !Boolean(rules?.zentorikin),
+              enforceRecursiveUchifu: true,
+              uchifuRecursionDepth,
+              uchifuRecursionMax,
             })
           ) {
             continue;
@@ -9237,17 +10127,43 @@ function localComputeLegalAll(ctx, options = {}) {
       }
     }
 
+    // ステイルメイト課題では、最終手のみ非王手手での詰め上がりを許可する。
+    let allowsStalemateFinish = false;
+    if (
+      requiresSenteCheck &&
+      allowStalemateFinishWithoutCheck &&
+      !Boolean(givesCheckForObligation || isTakingKing)
+    ) {
+      allowsStalemateFinish = localIsImmediateStalemateForOwnerAfterMove(
+        nextPieces,
+        nextHands,
+        1,
+        rules,
+        simInfo,
+        simMoveStr,
+        ctx,
+        {
+          allInPrevKey: getCurrentPositionKeyNoTurn(),
+          analysisNoUchifu,
+          analysisIgnoreTorikin: Boolean(rules?.torikin) && !Boolean(rules?.zentorikin),
+        }
+      );
+    }
+
     // owner基準の王手判定を優先し、特殊所有権ケースでも王手義務判定を安定化する。
     const prepared = {
       ...mv,
       _gives_check: Boolean(givesCheckForObligation || givesCheck),
       _takes_king: isTakingKing,
+      _stalemate_finish: allowsStalemateFinish,
     };
 
     if (stopOnFirstReplayMatch && matchesReplayTarget(prepared)) {
       let one = [prepared];
       if (requiresSenteCheck) {
-        one = one.filter((m) => Boolean(m?._gives_check) || Boolean(m?._takes_king));
+        one = one.filter(
+          (m) => Boolean(m?._gives_check) || Boolean(m?._takes_king) || Boolean(m?._stalemate_finish)
+        );
       }
       const filteredOne = applyRuleFilterNoGlobalGreedyToBoard(one);
       if (filteredOne.length > 0) {
@@ -9255,6 +10171,7 @@ function localComputeLegalAll(ctx, options = {}) {
           const out = { ...m };
           delete out._gives_check;
           delete out._takes_king;
+          delete out._stalemate_finish;
           return out;
         });
         ctx.legal = { moves: legalOne, status: { kind: "none", text: "" } };
@@ -9273,7 +10190,9 @@ function localComputeLegalAll(ctx, options = {}) {
   let legalNoObligation = null;
   let legalFiltered = [];
   if (requiresSenteCheck) {
-    const obligationApplied = preObligation.filter((mv) => Boolean(mv._gives_check) || Boolean(mv._takes_king));
+    const obligationApplied = preObligation.filter(
+      (mv) => Boolean(mv._gives_check) || Boolean(mv._takes_king) || Boolean(mv._stalemate_finish)
+    );
     legalFiltered = applyRuleFilterNoGlobalGreedyToBoard(obligationApplied);
   } else {
     legalFiltered = applyRuleFilterNoGlobalGreedyToBoard(preObligation);
@@ -9282,12 +10201,40 @@ function localComputeLegalAll(ctx, options = {}) {
   if (!skipSort) {
     legalFiltered.sort((a, b) => String(a?.notation || "").localeCompare(String(b?.notation || ""), "ja"));
   }
-  const legal = legalFiltered.map((mv) => {
+  let legal = legalFiltered.map((mv) => {
     const out = { ...mv };
     delete out._gives_check;
     delete out._takes_king;
+    delete out._stalemate_finish;
     return out;
   });
+  const enableStrictNeutralSelfCheckPostFilter = false;
+  if (enableStrictNeutralSelfCheckPostFilter && !allowSelfCheck && !skipNeutralSelfCheckLegalScan && legal.length > 0) {
+    const hasNeutralKing = pieces.some((p) => p && Number(p.owner) === -1 && localPieceIsKing(p));
+    const hasImitator = pieces.some((p) => p && localIsImitatorPiece(p));
+    if (hasNeutralKing || hasImitator) {
+      const strictLegal = [];
+      for (const mv of legal) {
+        const simState = localSimulateStateAfterCandidate(pieces, hands, turn, mv, rules, ctx);
+        if (!simState) continue;
+        const simInfo = localCandidateLastMoveInfo(mv);
+        const simMoveStr = String(mv?.notation || "");
+        const selfChecked = localIsSelfCheckedAfterMoveState(
+          simState.board.pieces,
+          simState.hands,
+          Number(turn),
+          rules,
+          simInfo,
+          simMoveStr,
+          ctx,
+          mv,
+          false
+        );
+        if (!selfChecked) strictLegal.push(mv);
+      }
+      legal = strictLegal;
+    }
+  }
 
   let status = { kind: "none", text: "" };
   if (skipStatusEvaluation) {
@@ -9321,6 +10268,9 @@ function localComputeLegalAll(ctx, options = {}) {
           allInPrevKey: getPreviousPositionKeyNoTurn(),
           typeAttrsOrCtx: ctx,
           analysisIgnoreTorikin: Boolean(rules?.torikin) && !Boolean(rules?.zentorikin),
+          enforceRecursiveUchifu: true,
+          uchifuRecursionDepth,
+          uchifuRecursionMax,
         })
       ) {
         status = { kind: "checkmate", text: "詰み" };
@@ -10309,10 +11259,76 @@ function localParseKifuText(kifuText, meta = null, options = {}) {
   };
 }
 
+function localParseKifuMovesOnlyText(kifuText) {
+  const text = String(kifuText || "").replace(/^\uFEFF/, "");
+  if (!text.trim()) {
+    throw localApiError("INVALID_REQUEST", "棋譜テキストが空です");
+  }
+  return {
+    pieces: [],
+    hands: { "0": [], "1": [] },
+    turn: 0,
+    titleRules: {},
+    typeAttrs: {},
+    moveLines: text.split(/\r?\n/),
+  };
+}
+
 function localExtractMovesAndTerminalFromKifuLines(lines) {
   const moves = localExtractMoveTokens(lines);
   const terminal = localExtractTerminalResult(lines);
   return { moves, terminal };
+}
+
+function localLooksLikeReplayMoveTokenStart(tokenRaw) {
+  let token = localNormalizeDigits(localStripReplayOwnerPrefix(String(tokenRaw || "").trim()));
+  if (!token) return false;
+  token = localExtractNeutralPieceNotationToken(token).text;
+  token = token.replace(/[。,，,]+$/g, "");
+  return /^(同|[1-9][1-9](?:-[1-9][1-9])?)/.test(token);
+}
+
+function localNeedsReplayPieceContinuation(tokenRaw) {
+  let token = localNormalizeDigits(localStripReplayOwnerPrefix(String(tokenRaw || "").trim()));
+  if (!token) return false;
+  token = localExtractNeutralPieceNotationToken(token).text;
+  token = token.replace(/[。,，,]+$/g, "");
+  // 例: "44" / "44n" / "同" / "同n" / "43-21" までで終わっている断片は、
+  // 次トークンの駒名・修飾子を連結して1手記法へ復元する。
+  // 「同-37」(Siren/Triton の飛越マス付き表記) も未完成断片として扱う。
+  return /^(?:同(?:-[1-9][1-9])?|[1-9][1-9](?:-[1-9][1-9])?)(?:[nuv])?$/i.test(token);
+}
+
+function localNormalizeMoveTokenSpacing(partsRaw) {
+  const parts = (Array.isArray(partsRaw) ? partsRaw : [])
+    .map((v) => String(v || "").trim())
+    .filter((v) => v.length > 0);
+  const out = [];
+  for (let i = 0; i < parts.length; ) {
+    const token = parts[i];
+    if (!localNeedsReplayPieceContinuation(token)) {
+      out.push(token);
+      i += 1;
+      continue;
+    }
+    let merged = token;
+    let j = i + 1;
+    for (; j < parts.length; j += 1) {
+      const next = String(parts[j] || "").trim();
+      if (!next) continue;
+      const nextNorm = localNormalizeDigits(next);
+      if (!nextNorm) continue;
+      if (nextNorm === "まで") break;
+      if (/^\d+$/.test(nextNorm)) break;
+      if (/^手$/.test(nextNorm)) break;
+      if (localIsTerminalResultText(nextNorm)) break;
+      if (localLooksLikeReplayMoveTokenStart(next)) break;
+      merged += next;
+    }
+    out.push(merged);
+    i = j;
+  }
+  return out;
 }
 
 function localExtractMoveTokens(lines) {
@@ -10324,7 +11340,8 @@ function localExtractMoveTokens(lines) {
     if (/^変化[：:]/.test(line)) continue;
     if (/^手数[-]/.test(line)) continue;
     if (/^まで\s+/.test(line)) continue;
-    const parts = line.split(/\s+/).filter((v) => v.length > 0);
+    const partsRaw = line.split(/\s+/).filter((v) => v.length > 0);
+    const parts = localNormalizeMoveTokenSpacing(partsRaw);
     for (let p0 of parts) {
       let p = String(p0 || "").trim();
       if (!p) continue;
@@ -10346,7 +11363,7 @@ function localExtractTerminalResult(lines) {
   for (const lineRaw of all) {
     const line = String(lineRaw || "").trim();
     if (!line) continue;
-    const m = line.match(/^まで\s+[0-9０-９]+\s*手(?:\s*で(詰み|逃れ|ステイルメイト|千日手))?/);
+    const m = line.match(/(?:^|\s)まで\s+[0-9０-９]+\s*手(?:\s*で(詰み|逃れ|ステイルメイト|千日手))?/);
     if (m) {
       if (m[1]) terminal = m[1];
       continue;
@@ -10933,7 +11950,11 @@ function localFormatVariationLinesFromHistory(history) {
   const lines = ["変化:"];
   for (const entry of entries) {
     const seq = entry.line_nodes
-      .map((n) => localNormalizeMoveForExport(n?.move_str))
+      .map((n) => {
+        const nextTurn = Number(n?.state?.turn) === 1 ? 1 : 0;
+        const moveOwner = 1 - nextTurn;
+        return localApplyKingGlyphToNotation(localNormalizeMoveForExport(n?.move_str), moveOwner);
+      })
       .filter((s) => s.length > 0);
     const split = localSplitHistoryTerminal(seq);
     const moveText = split.moves.length > 0 ? split.moves.join(" ") : "-";
@@ -10948,7 +11969,33 @@ function localFormatVariationLinesFromHistory(history) {
 }
 
 function localDisplayPieceName(name) {
-  return displayNames?.[name] || name;
+  const pieceName = localCanonicalPieceName(name);
+  const mapped = displayNames?.[pieceName];
+  if (mapped !== undefined && mapped !== null && String(mapped).trim() !== "") {
+    const ms = String(mapped);
+    if (pieceName === "Zero" && ms.trim().toLowerCase() === "zero") {
+      return "零";
+    }
+    return ms;
+  }
+  if (pieceName === "Zero") return "零";
+  return pieceName;
+}
+
+function localUiKingGlyphByOwner(owner = null) {
+  const n = Number(owner);
+  if (n === 1) return getUiSettingSelect("defender_king_glyph", "玉");
+  if (n === 0) return getUiSettingSelect("attacker_king_glyph", "玉");
+  if (n === -1) return getUiSettingSelect("defender_king_glyph", "玉");
+  return getUiSettingSelect("attacker_king_glyph", "玉");
+}
+
+function localDisplayPieceNameByOwner(name, owner = null) {
+  const pieceName = localCanonicalPieceName(name);
+  if (pieceName === "玉" || pieceName === "王") {
+    return localUiKingGlyphByOwner(owner);
+  }
+  return localDisplayPieceName(pieceName);
 }
 
 function localKifuPieceNameForUsage(name) {
@@ -11226,7 +12273,9 @@ function localBuildKifuText(ctx) {
   for (let i = 1; i < mainlineIds.length; i += 1) {
     const n = byId.get(mainlineIds[i]);
     if (!n) continue;
-    const mv = localNormalizeMoveForExport(n.move_str);
+    const nextTurn = Number(n?.state?.turn) === 1 ? 1 : 0;
+    const moveOwner = 1 - nextTurn;
+    const mv = localApplyKingGlyphToNotation(localNormalizeMoveForExport(n.move_str), moveOwner);
     if (!mv) continue;
     if (localIsTerminalResultText(mv)) {
       terminal = mv;
@@ -11245,7 +12294,7 @@ function localBuildKifuText(ctx) {
   lines.push(ruleName);
   lines.push("");
 
-  const disp = (name) => localDisplayPieceName(name);
+  const disp = (name, owner = null) => localDisplayPieceNameByOwner(name, owner);
   const shouldPrefixNeutralForExport = (name) => !localIsFixedNeutralBoardPieceName(name);
   const handLine = (owner) => {
     const arr = Array.isArray(hands?.[String(owner)]) ? hands[String(owner)] : [];
@@ -11269,7 +12318,7 @@ function localBuildKifuText(ctx) {
         const c = counts.get(token) || 0;
         const info = localParseHandToken(token);
         const baseName = String(info.name || "");
-        const shown = `${info.neutral && shouldPrefixNeutralForExport(baseName) ? "n" : ""}${disp(baseName)}`;
+        const shown = `${info.neutral && shouldPrefixNeutralForExport(baseName) ? "n" : ""}${disp(baseName, info.neutral ? -1 : owner)}`;
         return c > 1 ? `${shown}${c}` : shown;
       })
       .join("");
@@ -11287,7 +12336,7 @@ function localBuildKifuText(ctx) {
         cells.push("・");
         continue;
       }
-      const base = disp(p.name);
+      const base = disp(p.name, p.owner);
       if (p.owner === 1) {
         cells.push(`v${base}`);
       } else if (Number(p.owner) === -1) {
@@ -11773,38 +12822,65 @@ function createLocalEngine() {
     localEnsureRevision(ctx, expectedRevision);
     const loadOptions = options && typeof options === "object" ? options : {};
     const fastNoValidate = Boolean(loadOptions.fast_no_validate);
+    const movesOnly =
+      Boolean(loadOptions.moves_only) || Boolean(loadOptions.keep_position) || Boolean(loadOptions.kifu_only);
+    const appendToCurrentHistory =
+      movesOnly &&
+      String(ctx.state?.mode || "") === "play" &&
+      ctx.history &&
+      Array.isArray(ctx.history.nodes) &&
+      ctx.history.nodes.length > 0;
     const meta = await loadLocalMetaFromStatic();
     let parsed;
     reportIoLoadProgress("kifu-parse-start");
     try {
       parsed = localParseKifuText(kifu, meta, { typeAttrs: ctx.typeAttrs || {} });
     } catch (e) {
-      if (e?.apiCode === "INVALID_REQUEST") throw e;
-      throw localApiError("INVALID_REQUEST", `ioLoadKifu parse failed: ${e?.message || e}`);
+      if (movesOnly) {
+        parsed = localParseKifuMovesOnlyText(kifu);
+      } else {
+        if (e?.apiCode === "INVALID_REQUEST") throw e;
+        throw localApiError("INVALID_REQUEST", `ioLoadKifu parse failed: ${e?.message || e}`);
+      }
     }
     reportIoLoadProgress("kifu-parse-done");
     const nextCtx = localBuildContextFromState(localBuildPresetState("tsume"));
     const split = localSplitKifuAndVariationLines(parsed.moveLines);
     const moveInfo = localExtractMovesAndTerminalFromKifuLines(split.mainLines);
-    nextCtx.state.board = { width: 9, height: 9, pieces: parsed.pieces };
-    nextCtx.state.hands = { "0": parsed.hands["0"], "1": parsed.hands["1"] };
-    nextCtx.state.turn = parsed.turn;
-    nextCtx.state.mode = "play";
-    nextCtx.state.repeat_params = { from_ply: null, to_ply: null, repeat_count: null };
-    if (parsed.titleRules && typeof parsed.titleRules === "object") {
-      const safePatch = {};
-      const validKeys = new Set(Object.keys(nextCtx.state.rules || {}));
-      for (const [k, v] of Object.entries(parsed.titleRules)) {
-        if (validKeys.has(k)) safePatch[k] = v;
+    if (movesOnly) {
+      const basePieces = Array.isArray(ctx.state?.board?.pieces) ? cloneJson(ctx.state.board.pieces) : [];
+      nextCtx.state.board = { width: 9, height: 9, pieces: basePieces };
+      nextCtx.state.hands = localCloneHands(ctx.state?.hands);
+      nextCtx.state.turn = Number(ctx.state?.turn) === 1 ? 1 : 0;
+      nextCtx.state.mode = "play";
+      nextCtx.state.rules = localMergeRulesWithDefaults(ctx.state?.rules || {});
+      nextCtx.state.repeat_params = { from_ply: null, to_ply: null, repeat_count: null };
+      nextCtx.typeAttrs = cloneJson(ctx.typeAttrs || {});
+    } else {
+      nextCtx.state.board = { width: 9, height: 9, pieces: parsed.pieces };
+      nextCtx.state.hands = { "0": parsed.hands["0"], "1": parsed.hands["1"] };
+      nextCtx.state.turn = parsed.turn;
+      nextCtx.state.mode = "play";
+      nextCtx.state.repeat_params = { from_ply: null, to_ply: null, repeat_count: null };
+      if (parsed.titleRules && typeof parsed.titleRules === "object") {
+        const safePatch = {};
+        const validKeys = new Set(Object.keys(nextCtx.state.rules || {}));
+        for (const [k, v] of Object.entries(parsed.titleRules)) {
+          if (validKeys.has(k)) safePatch[k] = v;
+        }
+        localApplyRulePatch(nextCtx, safePatch, meta);
       }
-      localApplyRulePatch(nextCtx, safePatch, meta);
+      nextCtx.typeAttrs = cloneJson(parsed.typeAttrs || {});
     }
     nextCtx.state.rule_name = localRuleNameFromRules(nextCtx.state.rules, { typeAttrs: nextCtx?.typeAttrs || {} });
-    nextCtx.typeAttrs = cloneJson(parsed.typeAttrs || {});
     localRefreshAllPieceEffectiveAttrs(nextCtx);
-    nextCtx.history = localBaseHistoryForState(nextCtx.state);
+    nextCtx.history = appendToCurrentHistory ? cloneJson(ctx.history) : localBaseHistoryForState(nextCtx.state);
+    if (!nextCtx.history || !Array.isArray(nextCtx.history.nodes) || nextCtx.history.nodes.length <= 0) {
+      nextCtx.history = localBaseHistoryForState(nextCtx.state);
+    }
+    const appendStartNodeId = String(nextCtx.history.current_id || nextCtx.history.root_id || "");
     const mainlineTotal = moveInfo.moves.length;
-    if (fastNoValidate) {
+    if (fastNoValidate && !appendToCurrentHistory) {
       nextCtx.history = localBuildHistoryFromMoves(
         nextCtx.state.turn,
         moveInfo.moves,
@@ -11850,7 +12926,7 @@ function createLocalEngine() {
         });
       }
     }
-    nextCtx.history.current_id = nextCtx.history.root_id;
+    nextCtx.history.current_id = appendToCurrentHistory ? appendStartNodeId : nextCtx.history.root_id;
     localSyncStateFromCurrentHistoryNode(nextCtx);
     ctx.state = cloneJson(nextCtx.state);
     ctx.state.session_id = sid;
@@ -12177,6 +13253,7 @@ function stopHistoryPlayback(options = {}) {
   const refreshLegalPanel = options.refreshLegalPanel !== false;
   const refreshLegalData =
     options.refreshLegalData === undefined ? !silent : Boolean(options.refreshLegalData);
+  const forceRefreshLegal = Boolean(options.forceRefreshLegal);
   if (!historyPlayRunning && !historyPlayTimer) {
     setHistoryPlayButtonState();
     return;
@@ -12185,7 +13262,7 @@ function stopHistoryPlayback(options = {}) {
   historyPlayDirection = 0;
   clearHistoryPlayTimer();
   setHistoryPlayButtonState();
-  if (refreshLegalData && legalNeedsRefreshAfterPlayback && sessionId && state?.mode === "play") {
+  if (refreshLegalData && (forceRefreshLegal || legalNeedsRefreshAfterPlayback) && sessionId && state?.mode === "play") {
     legalNeedsRefreshAfterPlayback = false;
     const sid = sessionId;
     void refreshLegal()
@@ -12245,7 +13322,7 @@ async function historyPlaybackStep() {
     );
     if (!historyPlayRunning) return;
     if (!moved) {
-      stopHistoryPlayback({ silent: true, refreshLegalData: true });
+      stopHistoryPlayback({ silent: true, refreshLegalData: true, forceRefreshLegal: true });
       logLine(actionKind === "forward" ? "棋譜再生：末尾に到達" : "棋譜再生：先頭に到達");
       return;
     }
@@ -12278,7 +13355,7 @@ function startHistoryPlayback(direction) {
 function toggleHistoryPlayback(direction) {
   const dir = direction >= 0 ? 1 : -1;
   if (historyPlayRunning && historyPlayDirection === dir) {
-    stopHistoryPlayback();
+    stopHistoryPlayback({ refreshLegalData: true, forceRefreshLegal: true });
     return;
   }
   startHistoryPlayback(dir);
@@ -12356,6 +13433,7 @@ function applyStateEnvelope(env) {
   // セッション再生成(RECOVERY/REVISION_CONFLICT対応)時は、検討中ならサブモードは維持する。
   // ただし逆算履歴/キャッシュは別セッションへ持ち越せないためクリアする。
   if (sessionChanged) {
+    rejectedLegalByPosition.clear();
     reverseMoves = [];
     reverseStatusText = "-";
     reverseCacheKey = "";
@@ -12401,7 +13479,7 @@ async function refreshLegal() {
   if (Number.isFinite(nextRevisionRaw)) {
     revision = Math.max(Number(revision || 0), nextRevisionRaw);
   }
-  legalMoves = env.data.moves || [];
+  legalMoves = filterRejectedLegalMoves(env.data.moves || []);
   legalStatus = env.data.status || { kind: "none", text: "" };
 }
 
@@ -12441,7 +13519,7 @@ function applyLegalDataFromEnvelope(data) {
   if (!data || typeof data !== "object" || !data.legal || typeof data.legal !== "object") return false;
   const moves = Array.isArray(data.legal.moves) ? data.legal.moves : null;
   if (!moves) return false;
-  legalMoves = moves;
+  legalMoves = filterRejectedLegalMoves(moves);
   legalStatus = data.legal.status || { kind: "none", text: "" };
   return true;
 }
@@ -13128,23 +14206,14 @@ function localCanonicalPieceName(name) {
   return token;
 }
 
-function displayNameForName(name) {
+function displayNameForName(name, owner = null) {
   const pieceName = localCanonicalPieceName(name);
   const typeAttrs = state?.type_attrs && typeof state.type_attrs === "object" ? state.type_attrs : {};
   const effective = localMergePieceAttrs(localDefaultPieceAttrs(pieceName), typeAttrs[String(pieceName || "")] || {});
   if (effective.display_name !== undefined && effective.display_name !== null && String(effective.display_name).trim() !== "") {
     return String(effective.display_name);
   }
-  const mapped = displayNames?.[pieceName];
-  if (mapped !== undefined && mapped !== null && String(mapped).trim() !== "") {
-    const ms = String(mapped);
-    if (pieceName === "Zero" && ms.trim().toLowerCase() === "zero") {
-      return "零";
-    }
-    return ms;
-  }
-  if (pieceName === "Zero") return "零";
-  return pieceName;
+  return localDisplayPieceNameByOwner(pieceName, owner);
 }
 
 function effectiveTypeAttrsForName(name) {
@@ -13232,7 +14301,16 @@ function displayNameForPiece(piece) {
   if (custom !== undefined && custom !== null && String(custom).trim() !== "") {
     return String(custom);
   }
-  return displayNameForName(piece.name);
+  return displayNameForName(piece.name, piece.owner);
+}
+
+function localShouldCompactPieceDisplayText(displayText, pieceName) {
+  const text = String(displayText || "").trim();
+  if (!text) return false;
+  if (Array.from(text).length < 2) return false;
+  const canonical = localCanonicalPieceName(pieceName);
+  if (!canonical) return false;
+  return !LOCAL_STANDARD_PIECE_NAMES.has(canonical);
 }
 
 function ruleLabelForKey(key) {
@@ -13919,6 +14997,7 @@ function legalMoveTakeMakeStepTo(mv) {
   if (direct && localInBoard(direct.x, direct.y)) {
     return { x: Number(direct.x), y: Number(direct.y) };
   }
+  if (!localIsTakeMakeActive(state?.rules || {})) return null;
   const raw = localNormalizeDigits(String(mv?.notation || "").trim());
   if (!raw) return null;
   const body = raw.replace(/^\s*(?:v[▲△]|[▲△]|v)\s*/, "");
@@ -14497,6 +15576,8 @@ async function chooseReverseCaptureByDialog(cands) {
 }
 
 async function chooseMoveVariant(cands) {
+  const rebirthKeyOf = (cand) =>
+    cand?.rebirth && localInBoard(cand.rebirth.x, cand.rebirth.y) ? coordText(cand.rebirth) : "__none__";
   if (cands.length <= 1) return cands[0] || null;
   const hasPromote = cands.some((c) => Boolean(c.promote));
   const hasNoPromote = cands.some((c) => !c.promote);
@@ -14506,6 +15587,42 @@ async function chooseMoveVariant(cands) {
     const promote = await choosePromoteByDialog();
     if (promote === null) return null;
     filtered = cands.filter((c) => Boolean(c.promote) === promote);
+  }
+  if (filtered.length <= 1) return filtered[0] || null;
+
+  const hasSwap = filtered.some((c) => c?.kind === "move" && Boolean(c?.messigny_swap));
+  const hasNormal = filtered.some((c) => c?.kind === "move" && !Boolean(c?.messigny_swap));
+  if (hasSwap && hasNormal) {
+    const swapSample = filtered.find((c) => Boolean(c?.messigny_swap));
+    const normalSample = filtered.find((c) => !Boolean(c?.messigny_swap));
+    const stripOwner = (s) => String(s || "").replace(/^\s*(?:v[▲△]|[▲△]|v)\s*/, "").trim();
+    const chooseSwap = await choosePromoteByDialog({
+      title: "Messigny選択",
+      prompt: "同一移動先の手を選択してください",
+      yes: `交換手(${stripOwner(swapSample?.notation || "交換")})`,
+      no: `通常手(${stripOwner(normalSample?.notation || "通常")})`,
+    });
+    if (chooseSwap === null) return null;
+    filtered = filtered.filter((c) => Boolean(c?.messigny_swap) === chooseSwap);
+  }
+  if (filtered.length <= 1) return filtered[0] || null;
+
+  const rebirthKeys = Array.from(new Set(filtered.map((c) => rebirthKeyOf(c))));
+  if (rebirthKeys.length > 1) {
+    if (rebirthKeys.length === 2) {
+      const labelOf = (k) => (k === "__none__" ? "復活なし" : `${k}で復活`);
+      const chooseFirst = await choosePromoteByDialog({
+        title: "復活地点選択",
+        prompt: "復活地点を選択してください",
+        yes: labelOf(rebirthKeys[0]),
+        no: labelOf(rebirthKeys[1]),
+      });
+      if (chooseFirst === null) return null;
+      const picked = chooseFirst ? rebirthKeys[0] : rebirthKeys[1];
+      filtered = filtered.filter((c) => rebirthKeyOf(c) === picked);
+    } else {
+      logLine("復活候補が3件以上のため先頭候補を選択しました。");
+    }
   }
   if (filtered.length <= 1) return filtered[0] || null;
 
@@ -14552,6 +15669,18 @@ async function chooseReverseCandidateVariant(cands) {
   return filtered[0];
 }
 
+function inferMessignySwapFromNotation(candidate) {
+  if (!state?.rules?.messigny) return null;
+  if (!candidate || candidate.kind !== "move" || !candidate.from) return null;
+  const notation = localNormalizeDigits(String(candidate.notation || ""));
+  const m = notation.match(/\/\s*(?:v[▲△]|[▲△]|v)?\s*([1-9])([1-9])/);
+  if (!m) return false;
+  const sx = localParseReplayFileChar(m[1]);
+  const sy = localParseReplayRankChar(m[2]);
+  if (!localInBoard(sx, sy)) return null;
+  return Number(sx) === Number(candidate.from.x) && Number(sy) === Number(candidate.from.y);
+}
+
 async function applyMove(candidate) {
   if (playSubMode !== "reverse") {
     const terminal = getCurrentHistoryTerminalResult();
@@ -14566,10 +15695,38 @@ async function applyMove(candidate) {
     to: candidate.to,
     promote: Boolean(candidate.promote),
   };
+  const messignySwap =
+    typeof candidate?.messigny_swap === "boolean"
+      ? Boolean(candidate.messigny_swap)
+      : inferMessignySwapFromNotation(candidate);
+  if (typeof messignySwap === "boolean") {
+    body.messigny_swap = messignySwap;
+  }
   if (candidate.rebirth) {
     body.rebirth = candidate.rebirth;
   }
-  const env = await currentEngine().applyMove(sessionId, body);
+  let env;
+  try {
+    env = await currentEngine().applyMove(sessionId, body);
+  } catch (e) {
+    const apiCode = String(e?.apiCode || "");
+    const apiMsg = String(e?.apiMessage || e?.message || "");
+    if (apiCode === "INVALID_MOVE" && apiMsg.includes("move leaves own king in check")) {
+      markRejectedLegalMove(candidate);
+    }
+    if (apiCode === "INVALID_MOVE" || apiCode === "INVALID_DROP") {
+      selected = null;
+      takeMakePending = null;
+      setEditSelection(null);
+      try {
+        await refreshLegal();
+      } catch (_refreshErr) {
+        // keep original API error as primary
+      }
+      renderAll();
+    }
+    throw e;
+  }
   applyStateEnvelope(env);
   if (Number(state?.turn ?? prevTurn) === prevTurn) {
     await refreshState();
@@ -14619,7 +15776,24 @@ async function applyDrop(candidate) {
     to: candidate.to,
   };
   if (resolvedNeutralPiece) body.neutral_piece = true;
-  const env = await currentEngine().applyDrop(sessionId, body);
+  let env;
+  try {
+    env = await currentEngine().applyDrop(sessionId, body);
+  } catch (e) {
+    const apiCode = String(e?.apiCode || "");
+    if (apiCode === "INVALID_MOVE" || apiCode === "INVALID_DROP") {
+      selected = null;
+      takeMakePending = null;
+      setEditSelection(null);
+      try {
+        await refreshLegal();
+      } catch (_refreshErr) {
+        // keep original API error as primary
+      }
+      renderAll();
+    }
+    throw e;
+  }
   applyStateEnvelope(env);
   if (Number(state?.turn ?? prevTurn) === prevTurn) {
     await refreshState();
@@ -17326,9 +18500,11 @@ function setIoBusy(active, message = "読込中...") {
     ui.ioText,
     ui.ioFileInput,
     ui.btnLoadClipboard,
+    ui.btnLoadClipboardKifuOnly,
     ui.btnExportSfen,
     ui.btnExportKifu,
     ui.btnIoUpload,
+    ui.btnIoUploadKifuOnly,
     ui.btnIoDownload,
     ui.btnIoDialogClose,
   ];
@@ -17346,8 +18522,9 @@ async function withIoBusy(message, fn) {
   }
 }
 
-async function loadTextFromFileInput(file) {
+async function loadTextFromFileInput(file, options = {}) {
   if (!file) return;
+  const fileMode = String(options?.mode || "auto");
   await withIoBusy(`読込中... ${file.name}`, async () => {
     let maxUiPercent = 1;
     let stageProgressUsed = false;
@@ -17419,13 +18596,22 @@ async function loadTextFromFileInput(file) {
     setIoLoadProgressHook(onLoadStageProgress);
     let kind = "kifu";
     try {
-      kind = await loadAutoFromText(text, file.name);
+      if (fileMode === "kifu_only") {
+        await loadKifuText(text, { movesOnly: true });
+        kind = "kifu_only";
+      } else {
+        kind = await loadAutoFromText(text, file.name);
+      }
     } finally {
       setIoLoadProgressHook(null);
     }
     stopIoProgressPulse();
     setMonotonicProgress(100, "読込完了 100%");
-    logLine(`自動判定：${ioAutoKindLabel(kind)}`);
+    if (kind === "kifu_only") {
+      logLine("棋譜のみ読込を実行しました");
+    } else {
+      logLine(`自動判定：${ioAutoKindLabel(kind)}`);
+    }
   });
   closeIoDialog();
 }
@@ -18233,6 +19419,19 @@ function looksLikeSfen(text) {
 async function loadSfenText(sfenText) {
   if (!sessionId) return;
   stopHistoryPlayback({ silent: true });
+  // 通常棋譜/SFENを読む場合は、逆算サブモードを明示的に解除してから反映する。
+  if (playSubMode === "reverse") {
+    playSubMode = "normal";
+    reverseHistoryTree = null;
+    reverseHistoryNodeSeq = 1;
+    reverseSelectedNodeId = null;
+    reverseMoves = [];
+    reverseStatusText = "-";
+    reverseCacheKey = "";
+    reverseResultCache.clear();
+    reversePredecessorLegalGlobalCache.clear();
+    reverseClearWorkerPending();
+  }
   const sfen = normalizeSfenCandidate(sfenText);
   if (!sfen) throw new Error("SFENテキストが空です");
   const env = await currentEngine().ioLoadSfen(sessionId, revision, sfen);
@@ -18248,12 +19447,32 @@ async function loadSfenText(sfenText) {
   logLine("SFENを読込みました");
 }
 
-async function loadKifuText(kifuText) {
+async function loadKifuText(kifuText, options = {}) {
   if (!sessionId) return;
   stopHistoryPlayback({ silent: true });
+  const movesOnly =
+    Boolean(options?.movesOnly) || Boolean(options?.moves_only) || Boolean(options?.kifu_only);
+  // 通常棋譜を読む場合は、逆算サブモードを明示的に解除してから反映する。
+  if (playSubMode === "reverse") {
+    playSubMode = "normal";
+    reverseHistoryTree = null;
+    reverseHistoryNodeSeq = 1;
+    reverseSelectedNodeId = null;
+    reverseMoves = [];
+    reverseStatusText = "-";
+    reverseCacheKey = "";
+    reverseResultCache.clear();
+    reversePredecessorLegalGlobalCache.clear();
+    reverseClearWorkerPending();
+  }
   const kifu = kifuText || "";
   if (!kifu.trim()) throw new Error("棋譜テキストが空です");
-  const env = await currentEngine().ioLoadKifu(sessionId, revision, kifu);
+  const env = await currentEngine().ioLoadKifu(
+    sessionId,
+    revision,
+    kifu,
+    movesOnly ? { moves_only: true } : {}
+  );
   applyStateEnvelope(env);
   selected = null;
   {
@@ -18263,7 +19482,7 @@ async function loadKifuText(kifuText) {
   await refreshLegal();
   await refreshHistory();
   renderAll();
-  logLine("棋譜を読込みました");
+  logLine(movesOnly ? "現在局面に棋譜手順を読込みました" : "棋譜を読込みました");
 }
 
 function ioAutoKindLabel(kind) {
@@ -18272,7 +19491,7 @@ function ioAutoKindLabel(kind) {
   return "棋譜";
 }
 
-async function loadAutoFromText(text, filename = "") {
+async function loadAutoFromText(text, filename = "", options = {}) {
   const raw = text || "";
   if (!raw.trim()) throw new Error("読込テキストが空です");
   if (looksLikeReverseKifuText(raw)) {
@@ -18296,13 +19515,16 @@ async function loadAutoFromText(text, filename = "") {
   if (!order.includes("kifu")) order.push("kifu");
 
   let lastError = null;
+  const appendOnPlayMode = Boolean(options?.append_on_play_mode);
+  const kifuOnly = Boolean(options?.kifu_only);
   for (const kind of order) {
     try {
       if (kind === "sfen") {
         await loadSfenText(raw);
         return "sfen";
       }
-      await loadKifuText(raw);
+      const movesOnly = kifuOnly || (appendOnPlayMode && String(state?.mode || "") === "play");
+      await loadKifuText(raw, movesOnly ? { movesOnly: true } : {});
       return "kifu";
     } catch (e) {
       lastError = e;
@@ -18311,7 +19533,7 @@ async function loadAutoFromText(text, filename = "") {
   throw new Error(`自動判別に失敗しました: ${lastError?.message || "unknown error"}`);
 }
 
-async function loadAutoFromClipboard() {
+async function loadAutoFromClipboard(options = {}) {
   if (!navigator?.clipboard?.readText) {
     throw new Error("このブラウザではクリップボード読込に対応していません");
   }
@@ -18327,10 +19549,20 @@ async function loadAutoFromClipboard() {
     throw new Error("クリップボードに読込可能なテキストがありません");
   }
 
+  const mode = String(options?.mode || "auto");
   if (ui.ioText) ui.ioText.value = text;
+  if (mode === "kifu_only") {
+    setIoProgress(45, "棋譜読込中 45%");
+    startIoProgressPulse(50, 95, "棋譜反映中");
+    await loadKifuText(text, { movesOnly: true });
+    stopIoProgressPulse();
+    setIoProgress(100, "読込完了 100%");
+    logLine("クリップボードを読み込みました (棋譜のみ)");
+    return "kifu_only";
+  }
   setIoProgress(45, "形式判定中 45%");
   startIoProgressPulse(50, 95, "局面反映中");
-  const kind = await loadAutoFromText(text, "clipboard.txt");
+  const kind = await loadAutoFromText(text, "clipboard.txt", { append_on_play_mode: true });
   stopIoProgressPulse();
   setIoProgress(100, "読込完了 100%");
   logLine(`クリップボードを読み込みました (${ioAutoKindLabel(kind)})`);
@@ -18385,7 +19617,7 @@ function localBuildSfenNeutralIncompatibleMessage(summary) {
   const neutralHandCount = Number(summary?.neutralHandCount || 0);
   const sample = neutralPieces
     .slice(0, 3)
-    .map((p) => `${9 - Number(p.x)}${Number(p.y) + 1}${displayNameForName(String(p.name || ""))}`);
+    .map((p) => `${9 - Number(p.x)}${Number(p.y) + 1}${displayNameForName(String(p.name || ""), Number(p.owner))}`);
   const details = [];
   if (neutralPieces.length > 0) {
     details.push(
@@ -18509,17 +19741,17 @@ function renderStatus() {
     }
     const ownerText = ownerMark(editSelection.owner);
     if (editSelection.source === "board") {
-      ui.selectedInfo.textContent = `編集選択：盤上 ${ownerText}${displayNameForName(editSelection.name)} @${9 - editSelection.x}${editSelection.y + 1}`;
+      ui.selectedInfo.textContent = `編集選択：盤上 ${ownerText}${displayNameForName(editSelection.name, editSelection.owner)} @${9 - editSelection.x}${editSelection.y + 1}`;
       return;
     }
     if (editSelection.source === "hand") {
       const handInfo = localParseHandToken(editSelection.name);
-      const baseDisp = displayNameForName(handInfo.name || editSelection.name);
+      const baseDisp = displayNameForName(handInfo.name || editSelection.name, handInfo.neutral ? -1 : editSelection.owner);
       const handDisp = baseDisp;
       ui.selectedInfo.textContent = `編集選択：持駒 ${ownerText}${handDisp}`;
       return;
     }
-    ui.selectedInfo.textContent = `編集選択：駒箱 ${ownerText}${displayNameForName(editSelection.name)}`;
+    ui.selectedInfo.textContent = `編集選択：駒箱 ${ownerText}${displayNameForName(editSelection.name, editSelection.owner)}`;
     return;
   }
   if (!selected) {
@@ -18540,7 +19772,7 @@ function renderStatus() {
     return;
   }
   const selectedHand = localParseHandToken(selected.name);
-  const selectedDisp = displayNameForName(selectedHand.name || selected.name);
+  const selectedDisp = displayNameForName(selectedHand.name || selected.name, selectedHand.neutral ? -1 : selected.owner);
   const selectedLabel = selectedDisp;
   ui.selectedInfo.textContent = `選択：${selected.owner === 0 ? "▲" : "△"}持駒 ${selectedLabel}`;
 }
@@ -18581,7 +19813,7 @@ function renderHands() {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "hand-item";
-      const dispBase = displayNameForName(name);
+      const dispBase = displayNameForName(name, neutral ? -1 : owner);
       const disp = dispBase;
       const handAttrTip = changedAttrsTooltipForName(name);
       const head = neutral ? `${disp} (${name}) [中立]` : `${disp} (${name})`;
@@ -18591,6 +19823,7 @@ function renderHands() {
       pieceSpan.className = "hand-piece";
       if (owner === 1) pieceSpan.classList.add("owner-1");
       if (neutral) pieceSpan.classList.add("owner--1");
+      if (localShouldCompactPieceDisplayText(disp, name)) pieceSpan.classList.add("piece-text-compact");
       pieceSpan.textContent = disp;
       btn.appendChild(pieceSpan);
 
@@ -18681,13 +19914,24 @@ function renderPieceBox() {
   }
 
   const selectedName =
-    state?.mode === "edit" && editSelection && editSelection.source === "box" ? editSelection.name : null;
-  const names = editPieceNames.length > 0 ? editPieceNames : ["FU"];
+    state?.mode === "edit" && editSelection && editSelection.source === "box"
+      ? String(editSelection.name || "") === "王"
+        ? "玉"
+        : editSelection.name
+      : null;
+  const sourceNames = editPieceNames.length > 0 ? editPieceNames : ["FU"];
+  const names = Array.from(
+    new Set(
+      sourceNames
+        .map((n) => (String(n || "") === "王" ? "玉" : String(n || "")))
+        .filter((n) => n.length > 0)
+    )
+  );
   ui.pieceBoxList.innerHTML = "";
   const nameSet = new Set(names);
-  const standardTop = ["王", "飛", "角", "金", "銀", "桂", "香", "歩"];
+  const standardTop = ["玉", "飛", "角", "金", "銀", "桂", "香", "歩"];
   const standardBottomFor = {
-    王: "玉",
+    玉: null,
     飛: "龍",
     角: "馬",
     金: null,
@@ -18725,13 +19969,14 @@ function renderPieceBox() {
 
     const text = document.createElement("span");
     text.className = "piecebox-text";
-    const shownName = name === "玉" ? "王" : displayNameForName(name);
+    const shownName = displayNameForName(name, editOwner);
+    if (localShouldCompactPieceDisplayText(shownName, name)) text.classList.add("piece-text-compact");
     text.textContent = shownName;
     btn.appendChild(text);
 
     const limit = STANDARD_COUNTS[standardBaseName(name)];
     const used = currentBaseCounts().get(standardBaseName(name)) || 0;
-    const hideCount = PROMOTED_SET.has(name) || shownName === "王";
+    const hideCount = PROMOTED_SET.has(name) || standardBaseName(name) === "王";
     const needsParenCount = false;
     const isFairyPiece = limit === undefined;
     let countText = "";
@@ -19450,8 +20695,10 @@ function renderBoard() {
       span.classList.add(`owner-${p.owner}`);
       const effectiveName = effectiveMoveNames.get(key) || p.name;
       const changedMove = showEffectiveBadge && !localEquivalentMoveName(effectiveName, p.name);
+      const pieceDisplay = displayNameForPiece(p);
+      if (localShouldCompactPieceDisplayText(pieceDisplay, p.name)) span.classList.add("piece-text-compact");
       if (changedMove) {
-        span.textContent = displayNameForPiece(p);
+        span.textContent = pieceDisplay;
         const originBadge = document.createElement("span");
         originBadge.className = "piece-origin-badge";
         if (p.owner === 1) originBadge.classList.add("owner-1");
@@ -19459,7 +20706,7 @@ function renderBoard() {
         originBadge.textContent = displayNameForName(effectiveName);
         btn.insertBefore(originBadge, span);
       } else {
-        span.textContent = displayNameForPiece(p);
+        span.textContent = pieceDisplay;
       }
     } else {
       span.textContent = "";
@@ -19620,8 +20867,55 @@ function syncHistoryScrollToCurrent(rows = null) {
   attempt(4);
 }
 
+function localNotationSegmentPieceOwner(segment, moveOwner = null, fallbackOwner = null) {
+  const raw = String(segment || "").trim();
+  const moveOwnerNum = Number(moveOwner);
+  const baseOwner =
+    Number(fallbackOwner) === 0 || Number(fallbackOwner) === 1
+      ? Number(fallbackOwner)
+      : moveOwnerNum === 0 || moveOwnerNum === 1
+        ? moveOwnerNum
+        : null;
+  if (!raw) return baseOwner;
+  if (raw.startsWith("v▲")) return 1;
+  if (raw.startsWith("v△")) return 0;
+  if (raw.startsWith("▲")) return 0;
+  if (raw.startsWith("△")) return 1;
+  if (raw.startsWith("v")) {
+    if (moveOwnerNum === 0 || moveOwnerNum === 1) return 1 - moveOwnerNum;
+    return baseOwner;
+  }
+  if (/^(?:同|[1-9][1-9](?:-[1-9][1-9])?)v/.test(raw)) {
+    if (moveOwnerNum === 0 || moveOwnerNum === 1) return 1 - moveOwnerNum;
+  }
+  return baseOwner;
+}
+
+function localApplyKingGlyphToNotationSegment(segment, moveOwner = null, fallbackOwner = null) {
+  const raw = String(segment || "");
+  if (!raw) return raw;
+  const neutralGlyph = localUiKingGlyphByOwner(-1);
+  const withNeutral = raw.replace(/n[玉王]/g, () => `n${neutralGlyph}`);
+  const owner = localNotationSegmentPieceOwner(raw, moveOwner, fallbackOwner);
+  const glyph = localUiKingGlyphByOwner(owner);
+  if (!glyph) return withNeutral;
+  return withNeutral.replace(/[玉王]/g, glyph);
+}
+
+function localApplyKingGlyphToNotation(notation, moveOwner = null) {
+  const text = String(notation || "");
+  if (!text) return text;
+  const parts = text.split("/");
+  const baseOwner = localNotationSegmentPieceOwner(parts[0], moveOwner, moveOwner);
+  parts[0] = localApplyKingGlyphToNotationSegment(parts[0], moveOwner, moveOwner);
+  for (let i = 1; i < parts.length; i += 1) {
+    parts[i] = localApplyKingGlyphToNotationSegment(parts[i], moveOwner, baseOwner);
+  }
+  return parts.join("/");
+}
+
 function formatOpponentControlNotationForDisplay(notation, owner = null) {
-  const s = String(notation || "");
+  const s = localApplyKingGlyphToNotation(notation, owner);
   if (!s) return s;
   if (localHasInlineOpponentMarker(s)) return s;
   if (s.startsWith("v▲") || s.startsWith("v△") || s[0] === "v") {
@@ -19631,7 +20925,7 @@ function formatOpponentControlNotationForDisplay(notation, owner = null) {
 }
 
 function formatReverseHistoryNotationForDisplay(notation, owner = null) {
-  const s = String(notation || "");
+  const s = localApplyKingGlyphToNotation(notation, owner);
   if (!s) return s;
   if (s.startsWith("▲") || s.startsWith("△") || localHasInlineOpponentMarker(s)) return s;
   const n = Number(owner);
@@ -19642,18 +20936,20 @@ function formatReverseHistoryNotationForDisplay(notation, owner = null) {
 
 function formatLegalMoveLabel(m, pieceMap) {
   if (!m) return "";
-  if (m.notation) return formatOpponentControlNotationForDisplay(m.notation, m.owner);
+  if (m.notation) return formatOpponentControlNotationForDisplay(localApplyKingGlyphToNotation(m.notation, m.owner), m.owner);
   const ownerMark = m.owner === 1 ? "△" : "▲";
   if (m.kind === "drop") {
     const neutral = Boolean(m.neutral_piece) || localHandTokenNeutral(m.hand_token || m.name);
     const baseName = localHandTokenName(m.hand_token || m.name || m.name);
-    const name = `${neutral ? "n" : ""}${displayNameForName(baseName || m.name)}`;
+    const pieceOwner =
+      Number(m?.piece_owner) === -1 ? -1 : neutral ? -1 : Number(m?.owner) === 1 ? 1 : 0;
+    const name = `${neutral ? "n" : ""}${displayNameForName(baseName || m.name, pieceOwner)}`;
     return `${ownerMark}${coordText(m.to)}${name}打`;
   }
   if (m.kind === "move") {
     const fromKey = m.from ? coordKey(m.from.x, m.from.y) : null;
     const fromPiece = fromKey ? pieceMap.get(fromKey) : null;
-    const pieceLabel = fromPiece ? displayNameForPiece(fromPiece) : displayNameForName(m.name);
+    const pieceLabel = fromPiece ? displayNameForPiece(fromPiece) : displayNameForName(m.name, m?.piece_owner);
     const promote = m.promote ? "成" : "";
     const rebirth = m.rebirth ? `/${coordText(m.rebirth)}` : "";
     return `${ownerMark}${coordText(m.to)}${pieceLabel}${promote}${rebirth}`;
@@ -22182,6 +23478,11 @@ async function boot() {
       openIoDialog();
     });
   }
+  if (ui.btnHelpDialogOpen) {
+    ui.btnHelpDialogOpen.addEventListener("click", () => {
+      openHelpDialog();
+    });
+  }
   if (ui.ioDialog) {
     ui.ioDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -22235,15 +23536,24 @@ async function boot() {
   }
   if (ui.btnIoUpload) {
     ui.btnIoUpload.addEventListener("click", () => {
+      ioFileLoadMode = "auto";
+      if (ui.ioFileInput) ui.ioFileInput.click();
+    });
+  }
+  if (ui.btnIoUploadKifuOnly) {
+    ui.btnIoUploadKifuOnly.addEventListener("click", () => {
+      ioFileLoadMode = "kifu_only";
       if (ui.ioFileInput) ui.ioFileInput.click();
     });
   }
   if (ui.ioFileInput) {
     ui.ioFileInput.addEventListener("change", async () => {
       try {
+        const mode = ioFileLoadMode;
+        ioFileLoadMode = "auto";
         const file = ui.ioFileInput.files && ui.ioFileInput.files[0];
         if (!file) return;
-        await loadTextFromFileInput(file);
+        await loadTextFromFileInput(file, { mode });
       } catch (e) {
         logLine(e.message || String(e), true);
       } finally {
@@ -22273,6 +23583,12 @@ async function boot() {
       closeMiscDialog();
     });
   }
+  if (ui.helpDialog) {
+    ui.helpDialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeHelpDialog();
+    });
+  }
   if (ui.customFairyDialog) {
     ui.customFairyDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -22293,6 +23609,11 @@ async function boot() {
   if (ui.btnMiscDialogClose) {
     ui.btnMiscDialogClose.addEventListener("click", () => {
       closeMiscDialog();
+    });
+  }
+  if (ui.btnHelpDialogClose) {
+    ui.btnHelpDialogClose.addEventListener("click", () => {
+      closeHelpDialog();
     });
   }
   if (ui.btnCustomFairyClose) {
@@ -22810,6 +24131,18 @@ async function boot() {
       try {
         await withIoBusy("読込中... クリップボード", async () => {
           await loadAutoFromClipboard();
+        });
+        closeIoDialog();
+      } catch (e) {
+        logLine(e.message || String(e), true);
+      }
+    });
+  }
+  if (ui.btnLoadClipboardKifuOnly) {
+    ui.btnLoadClipboardKifuOnly.addEventListener("click", async () => {
+      try {
+        await withIoBusy("読込中... クリップボード(棋譜のみ)", async () => {
+          await loadAutoFromClipboard({ mode: "kifu_only" });
         });
         closeIoDialog();
       } catch (e) {
