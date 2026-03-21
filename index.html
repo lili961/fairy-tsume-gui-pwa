@@ -339,9 +339,10 @@
     <dialog id="branchDeleteDialog" class="attr-dialog">
       <form method="dialog" class="attr-dialog-form">
         <h3>手順削除</h3>
-        <div id="branchDeleteTarget" class="attr-target">この手順を削除しますか？</div>
+        <div id="branchDeleteTarget" class="attr-target">削除方法を選択してください</div>
         <div class="attr-actions">
-          <button id="btnBranchDeleteOk" type="button">削除</button>
+          <button id="btnBranchDeleteOk" type="button">この手順を削除</button>
+          <button id="btnBranchDeleteAll" type="button">本譜以外を全削除</button>
           <button id="btnBranchDeleteCancel" type="button">キャンセル</button>
         </div>
       </form>
@@ -453,14 +454,15 @@
                   <button type="button" class="misc-fairy-vector-btn" data-custom-vector-preset="clear">クリア</button>
                 </div>
                 <div class="misc-fairy-vector-manual">
-                  <label>dx <input id="customFairyDxInput" type="number" min="-8" max="8" step="1" value="1" /></label>
-                  <label>dy <input id="customFairyDyInput" type="number" min="-8" max="8" step="1" value="0" /></label>
+                  <label>dx <input id="customFairyDxInput" type="number" min="-9" max="9" step="1" value="1" /></label>
+                  <label>dy <input id="customFairyDyInput" type="number" min="-9" max="9" step="1" value="0" /></label>
                   <button id="btnCustomFairyVectorAdd" type="button" class="misc-fairy-vector-btn">追加</button>
                   <button id="btnCustomFairyVectorUndo" type="button" class="misc-fairy-vector-btn">1つ戻す</button>
+                  <button id="btnCustomFairyVectorBoardOpen" type="button" class="misc-fairy-vector-btn">盤で入力</button>
                 </div>
                 <div id="customFairyVectorsPreview" class="misc-fairy-vector-preview">（未入力）</div>
               </div>
-              <div class="misc-fairy-hint">dx,dy の組を空白区切りで入力（例: 1,0 0,1）</div>
+              <div class="misc-fairy-hint">「盤で入力」でマス選択可（手入力も可）</div>
             </div>
           </label>
           <label class="misc-fairy-field">
@@ -476,6 +478,56 @@
           <button id="btnCustomFairyAdd" type="button">追加</button>
           <button id="btnCustomFairyClearAll" type="button">この駒を削除</button>
           <button id="btnCustomFairyClose" type="button">閉じる</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="customFairyVectorBoardDialog" class="attr-dialog">
+      <form method="dialog" class="misc-fairy-vector-dialog">
+        <div class="attr-title">追加駒 盤入力</div>
+        <div class="misc-fairy-vector-board-wrap">
+          <div id="customFairyVectorBoardCaption" class="misc-fairy-vector-board-caption">
+            中心の駒から動けるマスをクリックで追加/解除
+          </div>
+          <div
+            id="customFairyVectorBoard"
+            class="misc-fairy-vector-board"
+            aria-label="追加駒のベクトル選択盤"
+          ></div>
+        </div>
+        <div class="attr-actions">
+          <button id="btnCustomFairyVectorBoardClear" type="button">クリア</button>
+          <button id="btnCustomFairyVectorBoardClose" type="button">閉じる</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="fairyMoveViewerDialog" class="attr-dialog">
+      <form method="dialog" class="misc-fairy-vector-dialog">
+        <div class="attr-title">フェアリー駒の動き確認</div>
+        <label class="misc-fairy-field">
+          <span class="misc-fairy-field-label">駒</span>
+          <select id="fairyMoveViewerSelect" class="misc-fairy-field-input"></select>
+        </label>
+        <label class="misc-fairy-field">
+          <span class="misc-fairy-field-label">表示条件</span>
+          <select id="fairyMoveViewerScenario" class="misc-fairy-field-input">
+            <option value="empty">通常移動</option>
+            <option value="capture">駒取りを見る（敵駒あり）</option>
+            <option value="hop">飛び越しを見る（障害駒あり）</option>
+          </select>
+        </label>
+        <div id="fairyMoveViewerCaption" class="misc-fairy-vector-board-caption">-</div>
+        <div class="misc-fairy-viewer-legend" aria-label="凡例">
+          <span class="misc-fairy-legend-chip"><span class="misc-fairy-legend-swatch reachable"></span>移動先</span>
+          <span class="misc-fairy-legend-chip"><span class="misc-fairy-legend-swatch capture"></span>駒取り先</span>
+          <span class="misc-fairy-legend-chip"><span class="misc-fairy-legend-swatch direction">→</span>方向</span>
+          <span class="misc-fairy-legend-chip"><span class="misc-fairy-legend-swatch enemy"></span>敵駒</span>
+          <span class="misc-fairy-legend-chip"><span class="misc-fairy-legend-swatch hurdle"></span>何らかの駒</span>
+          <span class="misc-fairy-legend-chip"><span class="misc-fairy-legend-swatch friendly"></span>味方駒</span>
+        </div>
+        <div id="fairyMoveViewerGuide" class="misc-fairy-viewer-guide">-</div>
+        <div id="fairyMoveViewerBoard" class="misc-fairy-vector-board" aria-label="フェアリー駒の動き確認盤"></div>
+        <div class="attr-actions">
+          <button id="btnFairyMoveViewerClose" type="button">閉じる</button>
         </div>
       </form>
     </dialog>

@@ -148,6 +148,7 @@ const ui = {
   branchDeleteDialog: getEl("branchDeleteDialog"),
   branchDeleteTarget: getEl("branchDeleteTarget"),
   btnBranchDeleteCancel: getEl("btnBranchDeleteCancel"),
+  btnBranchDeleteAll: getEl("btnBranchDeleteAll"),
   btnBranchDeleteOk: getEl("btnBranchDeleteOk"),
   historyBranchDialog: getEl("historyBranchDialog"),
   historyBranchDialogTitle: getEl("historyBranchDialogTitle"),
@@ -173,12 +174,25 @@ const ui = {
   customFairyDyInput: getEl("customFairyDyInput"),
   btnCustomFairyVectorAdd: getEl("btnCustomFairyVectorAdd"),
   btnCustomFairyVectorUndo: getEl("btnCustomFairyVectorUndo"),
+  btnCustomFairyVectorBoardOpen: getEl("btnCustomFairyVectorBoardOpen"),
+  customFairyVectorBoardDialog: getEl("customFairyVectorBoardDialog"),
+  customFairyVectorBoard: getEl("customFairyVectorBoard"),
+  customFairyVectorBoardCaption: getEl("customFairyVectorBoardCaption"),
+  btnCustomFairyVectorBoardClear: getEl("btnCustomFairyVectorBoardClear"),
+  btnCustomFairyVectorBoardClose: getEl("btnCustomFairyVectorBoardClose"),
   customFairyVectorsPreview: getEl("customFairyVectorsPreview"),
   customFairyTagInput: getEl("customFairyTagInput"),
   customFairyDescInput: getEl("customFairyDescInput"),
   btnCustomFairyAdd: getEl("btnCustomFairyAdd"),
   btnCustomFairyClearAll: getEl("btnCustomFairyClearAll"),
   btnCustomFairyClose: getEl("btnCustomFairyClose"),
+  fairyMoveViewerDialog: getEl("fairyMoveViewerDialog"),
+  fairyMoveViewerSelect: getEl("fairyMoveViewerSelect"),
+  fairyMoveViewerScenario: getEl("fairyMoveViewerScenario"),
+  fairyMoveViewerCaption: getEl("fairyMoveViewerCaption"),
+  fairyMoveViewerGuide: getEl("fairyMoveViewerGuide"),
+  fairyMoveViewerBoard: getEl("fairyMoveViewerBoard"),
+  btnFairyMoveViewerClose: getEl("btnFairyMoveViewerClose"),
 };
 
 let sessionId = null;
@@ -214,6 +228,7 @@ let reverseWorkerPendingAt = 0;
 let reverseWorkerWatchdogTimer = null;
 let reverseComputeContextOverride = null;
 let customVectorPresetActive = "";
+const CUSTOM_VECTOR_BOARD_RADIUS = 9;
 let historyTree = null;
 let selectedHistoryNodeId = null;
 let historyNodeMapNodesRef = null;
@@ -226,6 +241,8 @@ let historyRenderCurrentNodeId = null;
 let historyRenderFocusNodeId = null;
 let boardGridCells = null;
 let boardGridOwnerEl = null;
+let boardHoverMoveSource = null; // {x,y} | null
+let boardHoverMoveDestKeys = null; // Set(coordKey) | null
 let selected = null; // {type:'board', x,y} | {type:'hand', owner,name} | null
 let takeMakePending = null; // {fromX, fromY, stepX, stepY, cands?} | null
 let displayNames = {};
@@ -268,6 +285,8 @@ let historyPlayTimer = null;
 let historyPlayRunning = false;
 let historyPlayStepInFlight = false;
 let historyPlayDirection = 0; // 1: forward, -1: back
+let historyPlayLegalListInFlight = false;
+let historyPlayLegalListPending = false;
 let legalNeedsRefreshAfterPlayback = false;
 let localMetaCache = null;
 let localSessionSeq = 1;
@@ -284,6 +303,7 @@ let refreshLegalSeq = 0;
 let refreshHistorySeq = 0;
 let historyDividerDragging = null;
 let historyScrollbarSyncRaf = 0;
+let suppressHistoryAutoScroll = false;
 const REJECTED_LEGAL_BY_POSITION_MAX = 24;
 const rejectedLegalByPosition = new Map(); // key: `${sessionId}:${revision}` -> Set(signature)
 
@@ -350,10 +370,7 @@ const LOCAL_STANDARD_PIECE_NAMES = new Set([
   "成桂",
   "成銀",
 ]);
-const LOCAL_KIFU_USAGE_NAME_MAP = Object.freeze({
-  Imitator: "I",
-  "Teleport-Imitator": "I",
-});
+const LOCAL_KIFU_USAGE_NAME_MAP = Object.freeze({});
 const LOCAL_CIRCE_START_POS_SENTE = Object.freeze({
   歩: Object.freeze(Array.from({ length: 9 }, (_v, i) => Object.freeze([i, 6]))),
   角: Object.freeze([Object.freeze([1, 7])]),
@@ -404,6 +421,7 @@ const LOCAL_RULE_LABEL_PARSE_ORDER = Object.freeze([
   "tenkyo",
   "nekoneko",
   "messigny",
+  "messigny_no_back",
   "allow_double_fu",
   "allow_drop_fu_into_check",
   "uchifu_simple",
@@ -502,6 +520,7 @@ const LOCAL_DEFAULT_RULES = Object.freeze({
   tenkyo: false,
   nekoneko: false,
   messigny: false,
+  messigny_no_back: false,
   isardam: false,
   isardam_type_b: false,
   detect_sennichite: false,
@@ -545,6 +564,7 @@ const ANNA_NIFU_RULE_KEY = "annan_nifu_invalid";
 const ANNA_NIFU_HOST_RULE_KEYS = new Set(["annan", "anpoku", "haimen", "taimen", "tenkyo", "nekoneko"]);
 const ISARDAM_RULE_KEY = "isardam";
 const ISARDAM_TYPE_B_RULE_KEY = "isardam_type_b";
+const MESSIGNY_NO_BACK_RULE_KEY = "messigny_no_back";
 const K_MADRASI_RULE_KEY = "k_madrasi";
 const K_MADRASI_HOST_RULE_KEY = "madrasi";
 const K_TAKE_MAKE_RULE_KEY = "k_take_make";
@@ -558,6 +578,7 @@ const LORTAP_RULE_KEY = "lortap";
 const INLINE_RULE_HOST_TO_CHILD = new Map([
   ...Array.from(ANNA_NIFU_HOST_RULE_KEYS).map((host) => [host, ANNA_NIFU_RULE_KEY]),
   [ISARDAM_RULE_KEY, ISARDAM_TYPE_B_RULE_KEY],
+  ["messigny", MESSIGNY_NO_BACK_RULE_KEY],
   [K_MADRASI_HOST_RULE_KEY, K_MADRASI_RULE_KEY],
   [K_TAKE_MAKE_HOST_RULE_KEY, K_TAKE_MAKE_RULE_KEY],
   [UCHIFU_COMPLETE_HOST_RULE_KEY, UCHIFU_SIMPLE_RULE_KEY],
@@ -565,6 +586,7 @@ const INLINE_RULE_HOST_TO_CHILD = new Map([
 const INLINE_RULE_CHILD_KEYS = new Set([
   ANNA_NIFU_RULE_KEY,
   ISARDAM_TYPE_B_RULE_KEY,
+  MESSIGNY_NO_BACK_RULE_KEY,
   K_MADRASI_RULE_KEY,
   K_TAKE_MAKE_RULE_KEY,
   UCHIFU_SIMPLE_RULE_KEY,
@@ -617,7 +639,7 @@ const RULE_TAB_KEY_MAP = {
     "take_make",
     "k_take_make",
   ]),
-  other: new Set(["all_in_shogi", "patrol", "lortap", "messigny", "koma_amari_kin"]),
+  other: new Set(["all_in_shogi", "patrol", "lortap", "messigny", "messigny_no_back", "koma_amari_kin"]),
 };
 const CAPTURE_OWNER_MUTUAL_EXCLUSIVE_KEYS = Object.freeze([
   "all_andernach",
@@ -1285,7 +1307,42 @@ function openHelpDialog() {
 }
 
 function closeCustomFairyDialog() {
+  if (ui.customFairyVectorBoardDialog?.open) ui.customFairyVectorBoardDialog.close();
   if (ui.customFairyDialog?.open) ui.customFairyDialog.close();
+}
+
+function closeCustomFairyVectorBoardDialog() {
+  if (ui.customFairyVectorBoardDialog?.open) ui.customFairyVectorBoardDialog.close();
+}
+
+function fitVectorBoardCellSize(boardEl, kind = "viewer") {
+  if (!boardEl) return;
+  const vw = Math.max(320, Number(window.innerWidth) || 0);
+  const vh = Math.max(320, Number(window.innerHeight) || 0);
+  const widthBudget = Math.max(180, Math.floor(vw * 0.96) - 72);
+  const heightPad = kind === "viewer" ? 260 : 210;
+  const heightBudget = Math.max(180, Math.floor(vh * 0.86) - heightPad);
+  const gridLinePx = 20; // 18 gaps + outer 1px * 2
+  const raw = Math.min(24, (widthBudget - gridLinePx) / 19, (heightBudget - gridLinePx) / 19);
+  const px = Math.max(12, Math.floor(raw));
+  boardEl.style.setProperty("--vector-cell-size", `${px}px`);
+}
+
+function syncVectorBoardCellSizes() {
+  fitVectorBoardCellSize(ui.customFairyVectorBoard, "custom");
+  fitVectorBoardCellSize(ui.fairyMoveViewerBoard, "viewer");
+}
+
+function openCustomFairyVectorBoardDialog() {
+  if (!ui.customFairyVectorBoardDialog) return;
+  updateCustomFairyVectorPreview();
+  syncVectorBoardCellSizes();
+  if (ui.customFairyVectorBoardDialog.open) return;
+  try {
+    ui.customFairyVectorBoardDialog.showModal();
+  } catch (_e) {
+    ui.customFairyVectorBoardDialog.show();
+  }
 }
 
 function syncCustomFairyDialogMoveMode() {
@@ -1724,7 +1781,7 @@ function normalizeCustomMoveVectors(rawVectors) {
     const dy = Number.parseInt(dyRaw, 10);
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     if (dx === 0 && dy === 0) return;
-    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) return;
+    if (Math.abs(dx) > CUSTOM_VECTOR_BOARD_RADIUS || Math.abs(dy) > CUSTOM_VECTOR_BOARD_RADIUS) return;
     vecs.push([dx, dy]);
   };
 
@@ -1817,16 +1874,1087 @@ const CUSTOM_VECTOR_PRESETS = Object.freeze({
   ],
 });
 
+function getCustomFairyVectorCenterLabel() {
+  const display = String(ui.customFairyDisplayInput?.value || "").trim();
+  if (display) return display.slice(0, 2);
+  const name = String(ui.customFairyNameInput?.value || "").trim();
+  if (name) return name.slice(0, 2);
+  return "駒";
+}
+
+function ensureCustomFairyVectorBoard() {
+  if (!ui.customFairyVectorBoard) return;
+  if (ui.customFairyVectorBoard.dataset.built === "1") return;
+  const frag = document.createDocumentFragment();
+  for (let dy = -CUSTOM_VECTOR_BOARD_RADIUS; dy <= CUSTOM_VECTOR_BOARD_RADIUS; dy += 1) {
+    for (let dx = -CUSTOM_VECTOR_BOARD_RADIUS; dx <= CUSTOM_VECTOR_BOARD_RADIUS; dx += 1) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "misc-fairy-vector-board-cell";
+      cell.dataset.dx = String(dx);
+      cell.dataset.dy = String(dy);
+      if (dx === 0 && dy === 0) {
+        cell.classList.add("center");
+        cell.dataset.center = "1";
+      } else {
+        cell.title = `dx=${dx}, dy=${dy}`;
+        cell.setAttribute("aria-label", `dx=${dx}, dy=${dy}`);
+      }
+      frag.appendChild(cell);
+    }
+  }
+  ui.customFairyVectorBoard.innerHTML = "";
+  ui.customFairyVectorBoard.appendChild(frag);
+  ui.customFairyVectorBoard.dataset.built = "1";
+}
+
+function updateCustomFairyVectorBoardCenter() {
+  if (!ui.customFairyVectorBoard) return;
+  ensureCustomFairyVectorBoard();
+  const center = ui.customFairyVectorBoard.querySelector(".misc-fairy-vector-board-cell.center");
+  if (center) center.textContent = getCustomFairyVectorCenterLabel();
+}
+
+function customFairyVectorGcd(a, b) {
+  let x = Math.abs(Number(a) || 0);
+  let y = Math.abs(Number(b) || 0);
+  while (y !== 0) {
+    const t = x % y;
+    x = y;
+    y = t;
+  }
+  return x || 1;
+}
+
+function normalizeCustomFairyBoardVectorByMode(dxRaw, dyRaw) {
+  const mode = normalizeCustomMoveMode(ui.customFairyMoveModeSelect?.value);
+  const dx = Number.parseInt(dxRaw, 10);
+  const dy = Number.parseInt(dyRaw, 10);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [dx, dy];
+  if (mode !== "rider" && mode !== "hopper") return [dx, dy];
+  const g = customFairyVectorGcd(dx, dy);
+  if (g <= 1) return [dx, dy];
+  return [Math.trunc(dx / g), Math.trunc(dy / g)];
+}
+
+function collectCustomFairyBoardReachableKeys(vectors, mode) {
+  const out = new Set();
+  if (!Array.isArray(vectors) || vectors.length <= 0) return out;
+  const normalizedMode = normalizeCustomMoveMode(mode);
+  if (normalizedMode === "leaper") {
+    for (const [dx, dy] of vectors) {
+      out.add(`${dx},${dy}`);
+    }
+    return out;
+  }
+  if (normalizedMode === "rider" || normalizedMode === "hopper") {
+    for (const [dx, dy] of vectors) {
+      if (!dx && !dy) continue;
+      let tx = dx;
+      let ty = dy;
+      let guard = 0;
+      while (Math.abs(tx) <= CUSTOM_VECTOR_BOARD_RADIUS && Math.abs(ty) <= CUSTOM_VECTOR_BOARD_RADIUS && guard < 64) {
+        out.add(`${tx},${ty}`);
+        tx += dx;
+        ty += dy;
+        guard += 1;
+      }
+    }
+  }
+  return out;
+}
+
+function updateCustomFairyVectorBoardModeHint(modeRaw) {
+  const mode = normalizeCustomMoveMode(modeRaw);
+  if (ui.customFairyVectorBoard) ui.customFairyVectorBoard.dataset.mode = mode;
+  if (!ui.customFairyVectorBoardCaption) return;
+  if (mode === "leaper") {
+    ui.customFairyVectorBoardCaption.textContent = "Leaper: クリックしたマスがそのまま移動先";
+    return;
+  }
+  if (mode === "rider") {
+    ui.customFairyVectorBoardCaption.textContent = "Rider: クリック方向を設定（同一直線が利き）";
+    return;
+  }
+  if (mode === "hopper") {
+    ui.customFairyVectorBoardCaption.textContent = "Hopper: クリック方向を設定（飛び越し方向）";
+    return;
+  }
+  ui.customFairyVectorBoardCaption.textContent = "中心の駒から動けるマスをクリックで追加/解除";
+}
+
+function updateCustomFairyVectorBoardSelection(vectorsRaw = null) {
+  if (!ui.customFairyVectorBoard) return;
+  ensureCustomFairyVectorBoard();
+  const mode = normalizeCustomMoveMode(ui.customFairyMoveModeSelect?.value);
+  updateCustomFairyVectorBoardModeHint(mode);
+  const vectors =
+    vectorsRaw === null
+      ? normalizeCustomMoveVectors(ui.customFairyVectorsInput?.value || "")
+      : normalizeCustomMoveVectors(vectorsRaw);
+  const selected = new Set(vectors.map(([dx, dy]) => `${dx},${dy}`));
+  const reachable = collectCustomFairyBoardReachableKeys(vectors, mode);
+  const cells = ui.customFairyVectorBoard.querySelectorAll(".misc-fairy-vector-board-cell");
+  for (const cell of cells) {
+    if (cell.dataset.center === "1") continue;
+    const key = `${cell.dataset.dx || "0"},${cell.dataset.dy || "0"}`;
+    cell.classList.toggle("reachable", reachable.has(key));
+    cell.classList.toggle("selected", selected.has(key));
+  }
+}
+
+function toggleCustomFairyVectorBoardCell(dxRaw, dyRaw) {
+  const [dx, dy] = normalizeCustomFairyBoardVectorByMode(dxRaw, dyRaw);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+  if (dx === 0 && dy === 0) return;
+  if (Math.abs(dx) > CUSTOM_VECTOR_BOARD_RADIUS || Math.abs(dy) > CUSTOM_VECTOR_BOARD_RADIUS) return;
+  if (ui.customFairyDxInput) ui.customFairyDxInput.value = String(dx);
+  if (ui.customFairyDyInput) ui.customFairyDyInput.value = String(dy);
+  const base = normalizeCustomMoveVectors(ui.customFairyVectorsInput?.value || "");
+  const key = `${dx},${dy}`;
+  const idx = base.findIndex(([vx, vy]) => `${vx},${vy}` === key);
+  if (idx >= 0) {
+    base.splice(idx, 1);
+  } else {
+    base.push([dx, dy]);
+  }
+  setCustomVectorPresetActive("");
+  setCustomFairyVectorsFromArray(base);
+}
+
+function fairyMoveViewerPieceNames() {
+  const src = Array.isArray(editPieceNames) && editPieceNames.length > 0 ? editPieceNames : Object.keys(LOCAL_PIECE_SPECS || {});
+  const out = [];
+  const seen = new Set();
+  for (const nmRaw of src) {
+    const nm = String(nmRaw || "").trim();
+    if (!nm) continue;
+    if (seen.has(nm)) continue;
+    const base = standardBaseName(nm);
+    if (STANDARD_COUNTS[base] !== undefined) continue;
+    seen.add(nm);
+    out.push(nm);
+  }
+  out.sort((a, b) => {
+    const da = displayNameForName(a);
+    const db = displayNameForName(b);
+    const byDisplay = da.localeCompare(db, "ja");
+    if (byDisplay !== 0) return byDisplay;
+    return String(a).localeCompare(String(b), "ja");
+  });
+  return out;
+}
+
+function ensureFairyMoveViewerBoard() {
+  if (!ui.fairyMoveViewerBoard) return;
+  if (ui.fairyMoveViewerBoard.dataset.built === "1") return;
+  const frag = document.createDocumentFragment();
+  for (let dy = -CUSTOM_VECTOR_BOARD_RADIUS; dy <= CUSTOM_VECTOR_BOARD_RADIUS; dy += 1) {
+    for (let dx = -CUSTOM_VECTOR_BOARD_RADIUS; dx <= CUSTOM_VECTOR_BOARD_RADIUS; dx += 1) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "misc-fairy-vector-board-cell";
+      cell.dataset.dx = String(dx);
+      cell.dataset.dy = String(dy);
+      if (dx === 0 && dy === 0) {
+        cell.classList.add("center");
+        cell.dataset.center = "1";
+      } else {
+        cell.tabIndex = -1;
+      }
+      frag.appendChild(cell);
+    }
+  }
+  ui.fairyMoveViewerBoard.innerHTML = "";
+  ui.fairyMoveViewerBoard.appendChild(frag);
+  ui.fairyMoveViewerBoard.dataset.built = "1";
+}
+
+function buildFairyMoveViewerPattern(spec, scenarioRaw = "empty") {
+  const selected = new Set();
+  const directionVectors = new Set();
+  const directionCells = new Map();
+  const reachable = new Set();
+  const capture = new Set();
+  const sampleEnemy = new Set();
+  const sampleHurdle = new Set();
+  const sampleFriendly = new Set();
+  const modes = new Set();
+  const unsupported = new Set();
+  const scenario = ["empty", "capture", "hop", "mixed"].includes(String(scenarioRaw || ""))
+    ? String(scenarioRaw)
+    : "empty";
+  const scenarioLabel =
+    scenario === "capture"
+      ? "駒取り例"
+      : scenario === "hop"
+        ? "飛び越し例"
+        : scenario === "mixed"
+          ? "統合表示"
+          : "空盤";
+  let mixedNoHurdleShown = false;
+  let mixedFriendlyBlockShown = false;
+  let mixedLongLeapEnemyShown = false;
+  let mixedLongLeapFriendlyShown = false;
+  let mixedHopperEnemyCount = 0;
+  let mixedHopperHurdleCount = 0;
+  let mixedHopperReachableShown = false;
+  const mixedHopperHurdleMax = 5;
+
+  const addCell = (set, dx, dy) => {
+    const x = Number(dx);
+    const y = Number(dy);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (x === 0 && y === 0) return false;
+    if (Math.abs(x) > CUSTOM_VECTOR_BOARD_RADIUS || Math.abs(y) > CUSTOM_VECTOR_BOARD_RADIUS) return false;
+    set.add(`${x},${y}`);
+    return true;
+  };
+
+  const addDirectionVector = (dxRaw, dyRaw) => {
+    const dx = Number(dxRaw);
+    const dy = Number(dyRaw);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return;
+    directionVectors.add(`${dx},${dy}`);
+  };
+
+  const addDirectionCell = (dxRaw, dyRaw, sxRaw, syRaw) => {
+    const dx = Number(dxRaw);
+    const dy = Number(dyRaw);
+    const sx = Number(sxRaw);
+    const sy = Number(syRaw);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    if (!Number.isFinite(sx) || !Number.isFinite(sy) || (sx === 0 && sy === 0)) return;
+    if (dx === 0 && dy === 0) return;
+    if (Math.abs(dx) > CUSTOM_VECTOR_BOARD_RADIUS || Math.abs(dy) > CUSTOM_VECTOR_BOARD_RADIUS) return;
+    directionCells.set(`${dx},${dy}`, [sx, sy]);
+  };
+
+  const addRay = (set, dx, dy) => {
+    if (!dx && !dy) return;
+    let tx = Number(dx);
+    let ty = Number(dy);
+    let guard = 0;
+    while (Math.abs(tx) <= CUSTOM_VECTOR_BOARD_RADIUS && Math.abs(ty) <= CUSTOM_VECTOR_BOARD_RADIUS && guard < 64) {
+      addCell(set, tx, ty);
+      tx += dx;
+      ty += dy;
+      guard += 1;
+    }
+  };
+
+  const maxBoardSteps = (dxRaw, dyRaw) => {
+    const dx = Number(dxRaw);
+    const dy = Number(dyRaw);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return 0;
+    let step = 0;
+    while (step < CUSTOM_VECTOR_BOARD_RADIUS) {
+      const nx = dx * (step + 1);
+      const ny = dy * (step + 1);
+      if (Math.abs(nx) > CUSTOM_VECTOR_BOARD_RADIUS || Math.abs(ny) > CUSTOM_VECTOR_BOARD_RADIUS) break;
+      step += 1;
+    }
+    return step;
+  };
+
+  const isCaptureSide = (dxRaw, dyRaw) => {
+    const dx = Number(dxRaw);
+    const dy = Number(dyRaw);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return false;
+    return dx > 0 || (dx === 0 && dy < 0);
+  };
+
+  const addFromTargets = (part) => {
+    const out = [];
+    const seen = new Set();
+    const pieceMap = new Map();
+    localGenerateTargetsBySpec(part, { owner: 0, neutral_orientation_owner: 0 }, pieceMap, 4, 4, out, seen, "move");
+    for (const t of out) {
+      const dx = Number(t.x) - 4;
+      const dy = Number(t.y) - 4;
+      if (scenario === "capture") {
+        if (addCell(capture, dx, dy)) addCell(sampleEnemy, dx, dy);
+      } else {
+        addCell(reachable, dx, dy);
+      }
+    }
+    return out.length > 0;
+  };
+
+  const addPart = (part) => {
+    if (!part || typeof part !== "object") return;
+    const type = String(part.type || "").trim();
+    if (!type || type === "none" || type === "stone") return;
+    if (type === "mixed") {
+      for (const sub of part.parts || []) addPart(sub);
+      return;
+    }
+
+    const vectors = normalizeCustomMoveVectors(part.vectors || []);
+    for (const [dx, dy] of vectors) addCell(selected, dx, dy);
+
+    if (type === "step") {
+      modes.add("leaper");
+      for (const [dx, dy] of vectors) {
+        if (scenario === "mixed") {
+          const canCapture = !Boolean(part.no_capture);
+          if (isCaptureSide(dx, dy)) {
+            if (canCapture && addCell(capture, dx, dy)) addCell(sampleEnemy, dx, dy);
+          } else {
+            addCell(reachable, dx, dy);
+          }
+        } else if (scenario === "capture") {
+          const canCapture = !Boolean(part.no_capture);
+          if (canCapture && addCell(capture, dx, dy)) addCell(sampleEnemy, dx, dy);
+        } else {
+          addCell(reachable, dx, dy);
+        }
+      }
+      return;
+    }
+
+    if (type === "slide") {
+      modes.add("rider");
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        const isLongLeapRider = Math.max(Math.abs(dx), Math.abs(dy)) > 1;
+        if (scenario === "mixed") {
+          const canCapture = !Boolean(part.no_capture);
+          if (isLongLeapRider) {
+            const maxStep = maxBoardSteps(dx, dy);
+            const blockStep = Math.min(3, maxStep);
+            if (isCaptureSide(dx, dy)) {
+              if (!mixedLongLeapEnemyShown && canCapture && blockStep >= 1) {
+                mixedLongLeapEnemyShown = true;
+                for (let step = 1; step < blockStep; step += 1) {
+                  addCell(reachable, dx * step, dy * step);
+                }
+                if (addCell(sampleEnemy, dx * blockStep, dy * blockStep)) {
+                  addCell(capture, dx * blockStep, dy * blockStep);
+                }
+              } else {
+                addRay(reachable, dx, dy);
+              }
+            } else {
+              if (!mixedLongLeapFriendlyShown && blockStep >= 2) {
+                mixedLongLeapFriendlyShown = true;
+                for (let step = 1; step < blockStep; step += 1) {
+                  addCell(reachable, dx * step, dy * step);
+                }
+                addCell(sampleFriendly, dx * blockStep, dy * blockStep);
+              } else {
+                addRay(reachable, dx, dy);
+              }
+            }
+            continue;
+          }
+          if (isCaptureSide(dx, dy)) {
+            if (canCapture && addCell(sampleEnemy, dx, dy)) {
+              addCell(capture, dx, dy);
+            }
+          } else {
+            addRay(reachable, dx, dy);
+          }
+        } else if (scenario === "capture") {
+          const canCapture = !Boolean(part.no_capture);
+          if (canCapture && addCell(sampleEnemy, dx, dy)) {
+            addCell(capture, dx, dy);
+          }
+        } else {
+          addRay(reachable, dx, dy);
+        }
+      }
+      return;
+    }
+
+    if (type === "pao") {
+      modes.add("hopper");
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        if (scenario === "empty") {
+          addRay(reachable, dx, dy);
+          continue;
+        }
+        if (scenario === "mixed") {
+          if (isCaptureSide(dx, dy)) {
+            const hx = dx * 3;
+            const hy = dy * 3;
+            const lx = hx + dx;
+            const ly = hy + dy;
+            addCell(sampleHurdle, hx, hy);
+            if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+            addCell(reachable, dx, dy);
+            addCell(reachable, dx * 2, dy * 2);
+          } else {
+            addRay(reachable, dx, dy);
+          }
+          continue;
+        }
+        const hx = dx * 3;
+        const hy = dy * 3;
+        const lx = hx + dx;
+        const ly = hy + dy;
+        addCell(sampleHurdle, hx, hy);
+        if (scenario === "capture") {
+          if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+        } else {
+          addCell(reachable, lx, ly);
+        }
+      }
+      return;
+    }
+
+    if (type === "hopper") {
+      modes.add("hopper");
+      if (scenario === "empty") return;
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        const hx = dx * 3;
+        const hy = dy * 3;
+        const lx = hx + dx;
+        const ly = hy + dy;
+        if (scenario === "mixed") {
+          if (!mixedNoHurdleShown && isCaptureSide(dx, dy)) {
+            mixedNoHurdleShown = true;
+            continue;
+          }
+          if (isCaptureSide(dx, dy)) {
+            if (mixedHopperEnemyCount >= 2) continue;
+            if (mixedHopperHurdleCount >= mixedHopperHurdleMax) continue;
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            if (addCell(sampleEnemy, lx, ly)) {
+              addCell(capture, lx, ly);
+              mixedHopperEnemyCount += 1;
+            }
+            continue;
+          }
+          if (!mixedFriendlyBlockShown && mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            addCell(sampleFriendly, lx, ly);
+            mixedFriendlyBlockShown = true;
+            continue;
+          }
+          if (!mixedHopperReachableShown && mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            addCell(reachable, lx, ly);
+            mixedHopperReachableShown = true;
+            continue;
+          }
+          if (mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            addCell(reachable, lx, ly);
+          }
+          continue;
+        } else if (scenario === "capture") {
+          addCell(sampleHurdle, hx, hy);
+          if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+        } else {
+          addCell(sampleHurdle, hx, hy);
+          addCell(reachable, lx, ly);
+        }
+      }
+      return;
+    }
+
+    if (type === "locust") {
+      modes.add("hopper");
+      if (scenario === "empty") return;
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        if (scenario === "mixed" && !isCaptureSide(dx, dy)) continue;
+        const hx = dx * 3;
+        const hy = dy * 3;
+        const lx = hx + dx;
+        const ly = hy + dy;
+        addCell(sampleEnemy, hx, hy);
+        if (scenario === "capture" || scenario === "mixed") addCell(capture, lx, ly);
+      }
+      return;
+    }
+
+    if (type === "eagle") {
+      modes.add("hopper");
+      if (scenario === "empty") return;
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        const hx = dx * 3;
+        const hy = dy * 3;
+        const turns = [
+          [-dy, dx],
+          [dy, -dx],
+        ];
+        const landingCells = turns
+          .map((turn) => [hx + Number(turn[0] || 0), hy + Number(turn[1] || 0)])
+          .filter(([lx, ly]) => Number.isFinite(lx) && Number.isFinite(ly));
+        if (landingCells.length <= 0) continue;
+        if (scenario === "mixed") {
+          if (!mixedNoHurdleShown && isCaptureSide(dx, dy)) {
+            mixedNoHurdleShown = true;
+            continue;
+          }
+          if (isCaptureSide(dx, dy)) {
+            if (mixedHopperEnemyCount >= 2) continue;
+            if (mixedHopperHurdleCount >= mixedHopperHurdleMax) continue;
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            const landingIndex = mixedHopperEnemyCount % landingCells.length;
+            const [lx, ly] = landingCells[landingIndex] || landingCells[0];
+            if (addCell(sampleEnemy, lx, ly)) {
+              addCell(capture, lx, ly);
+              mixedHopperEnemyCount += 1;
+            }
+            for (let i = 0; i < landingCells.length; i += 1) {
+              if (i === landingIndex) continue;
+              const [rx, ry] = landingCells[i];
+              addCell(reachable, rx, ry);
+            }
+            continue;
+          }
+          if (!mixedFriendlyBlockShown && mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            const [fx, fy] = landingCells[0];
+            addCell(sampleFriendly, fx, fy);
+            for (let i = 1; i < landingCells.length; i += 1) {
+              const [rx, ry] = landingCells[i];
+              addCell(reachable, rx, ry);
+            }
+            mixedFriendlyBlockShown = true;
+            continue;
+          }
+          if (!mixedHopperReachableShown && mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            for (const [rx, ry] of landingCells) addCell(reachable, rx, ry);
+            mixedHopperReachableShown = true;
+            continue;
+          }
+          if (mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            for (const [lx, ly] of landingCells) addCell(reachable, lx, ly);
+          }
+          continue;
+        }
+        addCell(sampleHurdle, hx, hy);
+        const captureSide = scenario === "capture";
+        if (captureSide) {
+          for (const [lx, ly] of landingCells) {
+            if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+          }
+        } else {
+          for (const [lx, ly] of landingCells) addCell(reachable, lx, ly);
+        }
+      }
+      return;
+    }
+
+    if (type === "bent") {
+      modes.add("hopper");
+      if (scenario === "empty") return;
+      const bentAngle = Number(part?.angle || 90);
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        const hx = dx * 3;
+        const hy = dy * 3;
+        const turns = localBentTurnVectors(dx, dy, bentAngle);
+        const landingCells = turns
+          .map((turn) => [hx + Number(turn?.[0] || 0), hy + Number(turn?.[1] || 0)])
+          .filter(([lx, ly]) => Number.isFinite(lx) && Number.isFinite(ly));
+        if (landingCells.length <= 0) continue;
+        if (scenario === "mixed") {
+          if (!mixedNoHurdleShown && isCaptureSide(dx, dy)) {
+            mixedNoHurdleShown = true;
+            continue;
+          }
+          if (isCaptureSide(dx, dy)) {
+            if (mixedHopperEnemyCount >= 2) continue;
+            if (mixedHopperHurdleCount >= mixedHopperHurdleMax) continue;
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            const landingIndex = mixedHopperEnemyCount % landingCells.length;
+            const [lx, ly] = landingCells[landingIndex] || landingCells[0];
+            if (addCell(sampleEnemy, lx, ly)) {
+              addCell(capture, lx, ly);
+              mixedHopperEnemyCount += 1;
+            }
+            for (let i = 0; i < landingCells.length; i += 1) {
+              if (i === landingIndex) continue;
+              const [rx, ry] = landingCells[i];
+              addCell(reachable, rx, ry);
+            }
+            continue;
+          }
+          if (!mixedFriendlyBlockShown && mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            const [fx, fy] = landingCells[0];
+            addCell(sampleFriendly, fx, fy);
+            for (let i = 1; i < landingCells.length; i += 1) {
+              const [rx, ry] = landingCells[i];
+              addCell(reachable, rx, ry);
+            }
+            mixedFriendlyBlockShown = true;
+            continue;
+          }
+          if (!mixedHopperReachableShown && mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            for (const [rx, ry] of landingCells) addCell(reachable, rx, ry);
+            mixedHopperReachableShown = true;
+            continue;
+          }
+          if (mixedHopperHurdleCount < mixedHopperHurdleMax) {
+            if (addCell(sampleHurdle, hx, hy)) mixedHopperHurdleCount += 1;
+            for (const [lx, ly] of landingCells) addCell(reachable, lx, ly);
+          }
+          continue;
+        }
+        addCell(sampleHurdle, hx, hy);
+        const captureSide = scenario === "capture";
+        if (captureSide) {
+          for (const [lx, ly] of landingCells) {
+            if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+          }
+        } else {
+          for (const [lx, ly] of landingCells) addCell(reachable, lx, ly);
+        }
+      }
+      return;
+    }
+
+    if (type === "rose") {
+      modes.add("rider");
+      const vecCount = vectors.length;
+      if (vecCount <= 0) return;
+      for (let startIdx = 0; startIdx < vecCount; startIdx += 1) {
+        for (const turnDir of [1, -1]) {
+          let cx = 0;
+          let cy = 0;
+          const visited = new Set(["0,0"]);
+          for (let stepI = 0; stepI < 512; stepI += 1) {
+            const idx = (startIdx + turnDir * stepI + vecCount * 1024) % vecCount;
+            const [vxRaw, vyRaw] = vectors[idx];
+            const vx = Number(vxRaw || 0);
+            const vy = Number(vyRaw || 0);
+            const nx = cx + vx;
+            const ny = cy + vy;
+            if (!Number.isFinite(nx) || !Number.isFinite(ny)) break;
+            if (Math.abs(nx) > CUSTOM_VECTOR_BOARD_RADIUS || Math.abs(ny) > CUSTOM_VECTOR_BOARD_RADIUS) break;
+            const nkey = `${nx},${ny}`;
+            if (visited.has(nkey)) break;
+            addCell(reachable, nx, ny);
+            visited.add(nkey);
+            cx = nx;
+            cy = ny;
+            if (nx === 0 && ny === 0) break;
+          }
+        }
+      }
+      return;
+    }
+
+    if (type === "lion") {
+      modes.add("hopper");
+      if (scenario === "empty") return;
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        const hx = dx * 3;
+        const hy = dy * 3;
+        const lx = hx + dx;
+        const ly = hy + dy;
+        if (scenario === "mixed") {
+          if (!mixedNoHurdleShown && isCaptureSide(dx, dy)) {
+            mixedNoHurdleShown = true;
+            continue;
+          }
+          addCell(sampleHurdle, hx, hy);
+          if (!mixedFriendlyBlockShown && !isCaptureSide(dx, dy)) {
+            addCell(sampleFriendly, lx, ly);
+            mixedFriendlyBlockShown = true;
+            continue;
+          }
+          if (isCaptureSide(dx, dy)) {
+            if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+          } else {
+            addCell(reachable, lx, ly);
+          }
+        } else if (scenario === "capture") {
+          addCell(sampleHurdle, hx, hy);
+          if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+        } else {
+          addCell(sampleHurdle, hx, hy);
+          addCell(reachable, lx, ly);
+        }
+      }
+      return;
+    }
+
+    if (type === "kangaroo") {
+      modes.add("hopper");
+      if (scenario === "empty") return;
+      for (const [dx, dy] of vectors) {
+        addDirectionVector(dx, dy);
+        const h1x = dx * 2;
+        const h1y = dy * 2;
+        const h2x = dx * 4;
+        const h2y = dy * 4;
+        const lx = h2x + dx;
+        const ly = h2y + dy;
+        if (scenario === "mixed") {
+          if (!mixedNoHurdleShown && isCaptureSide(dx, dy)) {
+            mixedNoHurdleShown = true;
+            continue;
+          }
+          addCell(sampleHurdle, h1x, h1y);
+          addCell(sampleHurdle, h2x, h2y);
+          if (isCaptureSide(dx, dy)) {
+            if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+          } else if (!mixedFriendlyBlockShown) {
+            addCell(sampleFriendly, lx, ly);
+            mixedFriendlyBlockShown = true;
+          } else {
+            addCell(reachable, lx, ly);
+          }
+        } else if (scenario === "capture") {
+          addCell(sampleHurdle, h1x, h1y);
+          addCell(sampleHurdle, h2x, h2y);
+          if (addCell(sampleEnemy, lx, ly)) addCell(capture, lx, ly);
+        } else {
+          addCell(sampleHurdle, h1x, h1y);
+          addCell(sampleHurdle, h2x, h2y);
+          addCell(reachable, lx, ly);
+        }
+      }
+      return;
+    }
+
+    if (type === "zero") {
+      modes.add("leaper");
+      return;
+    }
+
+    if (addFromTargets(part)) {
+      modes.add("leaper");
+      return;
+    }
+    unsupported.add(type);
+  };
+
+  addPart(spec);
+  if (scenario === "mixed" && modes.has("rider")) {
+    const blockers = new Set([...sampleEnemy, ...sampleHurdle]);
+    for (const key of selected) {
+      const [dxRaw, dyRaw] = String(key).split(",");
+      const dx = Number(dxRaw);
+      const dy = Number(dyRaw);
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) continue;
+      if (!isCaptureSide(dx, dy)) continue;
+      let hitStep = 0;
+      for (let step = 1; step <= CUSTOM_VECTOR_BOARD_RADIUS; step += 1) {
+        if (blockers.has(`${dx * step},${dy * step}`)) {
+          hitStep = step;
+          break;
+        }
+      }
+      if (hitStep <= 1) continue;
+      for (let step = 1; step < hitStep; step += 1) {
+        addCell(reachable, dx * step, dy * step);
+      }
+    }
+  }
+  const mode = modes.has("hopper") ? "hopper" : modes.has("rider") ? "rider" : "leaper";
+  const tags = [scenarioLabel];
+  if (modes.has("leaper")) tags.push("Leaper");
+  if (modes.has("rider")) tags.push("Rider");
+  if (modes.has("hopper")) tags.push("Hopper");
+  if (unsupported.size > 0) tags.push(`未対応:${Array.from(unsupported).join(",")}`);
+  if (reachable.size <= 0 && capture.size <= 0) tags.push("表示対象なし");
+  return {
+    selected,
+    directionVectors,
+    directionCells,
+    reachable,
+    capture,
+    sampleEnemy,
+    sampleHurdle,
+    sampleFriendly,
+    mode,
+    summary: tags.join(" / "),
+  };
+}
+
+function fairyMoveViewerCollectSpecTypes(spec, out = new Set()) {
+  if (!spec || typeof spec !== "object") return out;
+  const type = String(spec.type || "").trim();
+  if (!type) return out;
+  out.add(type);
+  if (type === "mixed") {
+    for (const sub of spec.parts || []) fairyMoveViewerCollectSpecTypes(sub, out);
+  }
+  return out;
+}
+
+function fairyMoveViewerHasLongLeapSlideSpec(spec) {
+  if (!spec || typeof spec !== "object") return false;
+  const type = String(spec.type || "").trim();
+  if (type === "slide") {
+    const vectors = Array.isArray(spec.vectors) ? spec.vectors : [];
+    for (const vec of vectors) {
+      const dx = Math.abs(Number(vec?.[0]) || 0);
+      const dy = Math.abs(Number(vec?.[1]) || 0);
+      if (Math.max(dx, dy) > 1) return true;
+    }
+  }
+  if (type === "mixed") {
+    for (const sub of spec.parts || []) {
+      if (fairyMoveViewerHasLongLeapSlideSpec(sub)) return true;
+    }
+  }
+  return false;
+}
+
+function fairyMoveViewerScenarioText(scenarioRaw = "empty") {
+  const scenario = String(scenarioRaw || "empty");
+  if (scenario === "mixed") return "総合表示";
+  if (scenario === "capture") return "駒取りを見る（敵駒を配置した例）";
+  if (scenario === "hop") return "飛び越しを見る（障害駒を配置した例）";
+  return "通常移動";
+}
+
+function fairyMoveViewerDirectionArrow(dxRaw, dyRaw) {
+  const dx = Number(dxRaw);
+  const dy = Number(dyRaw);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return "・";
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  if (sx === 0 && sy < 0) return "↑";
+  if (sx > 0 && sy < 0) return "↗";
+  if (sx > 0 && sy === 0) return "→";
+  if (sx > 0 && sy > 0) return "↘";
+  if (sx === 0 && sy > 0) return "↓";
+  if (sx < 0 && sy > 0) return "↙";
+  if (sx < 0 && sy === 0) return "←";
+  if (sx < 0 && sy < 0) return "↖";
+  return "・";
+}
+
+function fairyMoveViewerScenarioOptionsForSpec(spec) {
+  const types = fairyMoveViewerCollectSpecTypes(spec);
+  const hasLongLeapSlide = fairyMoveViewerHasLongLeapSlideSpec(spec);
+  const hasFreeMoveType =
+    types.has("step") ||
+    types.has("slide") ||
+    types.has("rose") ||
+    types.has("lion") ||
+    types.has("equi") ||
+    types.has("area2") ||
+    types.has("zero");
+  const hasPao = types.has("pao");
+  const hasHopperLike = types.has("hopper") || types.has("eagle") || types.has("bent") || types.has("kangaroo");
+  const hasLionLike = types.has("lion");
+  const hasLocustLike = types.has("locust");
+  const values = [];
+  if ((hasLocustLike && hasFreeMoveType) || hasPao || hasHopperLike || hasLionLike || hasLongLeapSlide) {
+    values.push("mixed");
+  }
+  if (hasFreeMoveType || hasPao) values.push("empty");
+  if (hasLocustLike || hasPao) values.push("capture");
+  if (hasHopperLike || hasLionLike) values.push("hop");
+  if (values.length <= 0) values.push("empty");
+  const seen = new Set();
+  const uniq = [];
+  for (const v of values) {
+    if (seen.has(v)) continue;
+    seen.add(v);
+    uniq.push(v);
+  }
+  return uniq.map((value) => ({ value, label: fairyMoveViewerScenarioText(value) }));
+}
+
+function syncFairyMoveViewerScenarioOptions(pieceName, spec = null) {
+  if (!ui.fairyMoveViewerScenario) return "empty";
+  const actualSpec = spec || localPieceSpec(pieceName);
+  const options = fairyMoveViewerScenarioOptionsForSpec(actualSpec);
+  const current = String(ui.fairyMoveViewerScenario.value || "").trim();
+  ui.fairyMoveViewerScenario.innerHTML = "";
+  for (const item of options) {
+    const op = document.createElement("option");
+    op.value = item.value;
+    op.textContent = item.label;
+    ui.fairyMoveViewerScenario.appendChild(op);
+  }
+  const next = options.some((o) => o.value === current) ? current : options[0].value;
+  ui.fairyMoveViewerScenario.value = next;
+  return next;
+}
+
+function fairyMoveViewerGuideText(pieceName, spec, scenarioRaw = "empty") {
+  const name = String(pieceName || "").trim();
+  const display = displayNameForName(name);
+  const descRaw = String(pieceDescriptions?.[name] || "").trim();
+  const desc = descRaw.replace(/\r\n?/g, "\n").replace(/\n{3,}/g, "\n\n");
+  const types = fairyMoveViewerCollectSpecTypes(spec);
+  const lines = [];
+  if (desc) {
+    lines.push(`【${display}】${desc}`);
+  } else if (name) {
+    lines.push(`【${display}】個別説明は未登録です。下の盤表示で動きを確認してください。`);
+  }
+  if (types.has("locust")) {
+    lines.push("【Locust系】敵駒を飛び越えて1マス先に着地し、飛び越えた駒を取ります。");
+  }
+  if (types.has("hopper")) {
+    lines.push("【Hopper系】進行方向の最初の駒を飛び越えて着地します。総合表示では障害駒なし方向と、障害駒の先が味方駒の方向も示します。");
+  }
+  if (types.has("eagle")) {
+    lines.push("【Eagle系】駒を飛び越えた後、90度曲がった先に着地します。");
+  }
+  if (types.has("bent")) {
+    lines.push("【Bent系】駒を飛び越えた後、指定角度だけ曲がった先に着地します。");
+  }
+  if (types.has("kangaroo")) {
+    lines.push("【Kangaroo】Queen方向の駒を2つ飛び越え、2つ目の1マス先に着地します。着地点に敵駒がいれば取れます。");
+  }
+  if (types.has("pao")) {
+    lines.push("【Pao系】通常移動と駒取りで条件が異なります（駒取りは飛び越しが必要）。");
+  }
+  if (types.has("slide")) {
+    lines.push("【Rider系】直進移動は途中の駒で止まります。");
+  }
+  if (types.has("step")) {
+    lines.push("【Leaper系】指定ベクトルへ1回で移動します。");
+  }
+  if (types.has("zero")) {
+    lines.push("【Zero】同じマスでの着手です（位置は変わりません）。");
+  }
+  if (types.size <= 0 || lines.length <= 2) {
+    lines.push("【補足】この駒は特殊合成のため、盤上ハイライトを中心に確認してください。");
+  }
+  return lines.join("\n");
+}
+
+function renderFairyMoveViewerBoard() {
+  if (!ui.fairyMoveViewerBoard || !ui.fairyMoveViewerSelect) return;
+  ensureFairyMoveViewerBoard();
+  const pieceName = String(ui.fairyMoveViewerSelect.value || "").trim();
+  const display = displayNameForName(pieceName);
+  const spec = localPieceSpec(pieceName);
+  const scenario = syncFairyMoveViewerScenarioOptions(pieceName, spec);
+  const center = ui.fairyMoveViewerBoard.querySelector(".misc-fairy-vector-board-cell.center");
+  if (center) center.textContent = String(display || pieceName || "駒").slice(0, 2);
+  const pattern = buildFairyMoveViewerPattern(spec, scenario);
+  const friendlyCells = pattern.sampleFriendly || new Set();
+  ui.fairyMoveViewerBoard.dataset.mode = pattern.mode;
+  if (ui.fairyMoveViewerCaption) {
+    ui.fairyMoveViewerCaption.textContent = `【${display} (${pieceName})】${fairyMoveViewerScenarioText(scenario)}`;
+  }
+  if (ui.fairyMoveViewerGuide) {
+    ui.fairyMoveViewerGuide.textContent = fairyMoveViewerGuideText(pieceName, spec, scenario);
+  }
+  const customDirectionCells =
+    pattern.directionCells instanceof Map && pattern.directionCells.size > 0
+      ? pattern.directionCells
+      : new Map();
+  const directionTrail = new Set();
+  const blockerCells = new Set([...pattern.sampleEnemy, ...pattern.sampleHurdle, ...friendlyCells]);
+  const addDirectionTrail = (sx, sy) => {
+    if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+    let hitStep = 0;
+    for (let step = 1; step <= CUSTOM_VECTOR_BOARD_RADIUS; step += 1) {
+      const key = `${sx * step},${sy * step}`;
+      if (blockerCells.has(key)) {
+        hitStep = step;
+        break;
+      }
+    }
+    const maxStep = hitStep > 0 ? Math.max(0, hitStep - 1) : 2;
+    for (let step = 1; step <= maxStep; step += 1) {
+      directionTrail.add(`${sx * step},${sy * step}`);
+    }
+  };
+  const directionSource =
+    pattern.directionVectors instanceof Set && pattern.directionVectors.size > 0
+      ? pattern.directionVectors
+      : new Set();
+  for (const k of directionSource) {
+    const [sxRaw, syRaw] = String(k).split(",");
+    addDirectionTrail(Number(sxRaw), Number(syRaw));
+  }
+  const cells = ui.fairyMoveViewerBoard.querySelectorAll(".misc-fairy-vector-board-cell");
+  const showSelectedCells = pattern.mode !== "leaper";
+  for (const cell of cells) {
+    if (cell.dataset.center === "1") continue;
+    if (cell.disabled) cell.disabled = false;
+    const dx = Number(cell.dataset.dx || "0");
+    const dy = Number(cell.dataset.dy || "0");
+    const key = `${dx},${dy}`;
+    const customDir = customDirectionCells.get(key) || null;
+    const isCustomDirection =
+      Array.isArray(customDir) && customDir.length >= 2 && Number.isFinite(Number(customDir[0])) && Number.isFinite(Number(customDir[1]));
+    const isDefaultDirection =
+      directionTrail.has(key) &&
+      !pattern.sampleEnemy.has(key) &&
+      !pattern.sampleHurdle.has(key) &&
+      !friendlyCells.has(key);
+    const isDirection = isCustomDirection || isDefaultDirection;
+    const isDirectionUnreachable = !isCustomDirection && isDefaultDirection && !pattern.reachable.has(key);
+    const dirDx = isCustomDirection ? Number(customDir[0]) : dx;
+    const dirDy = isCustomDirection ? Number(customDir[1]) : dy;
+    cell.textContent = isDirection ? fairyMoveViewerDirectionArrow(dirDx, dirDy) : "";
+    cell.classList.toggle("sample-hurdle", pattern.sampleHurdle.has(key));
+    cell.classList.toggle("sample-enemy", pattern.sampleEnemy.has(key));
+    cell.classList.toggle("sample-friendly", friendlyCells.has(key));
+    cell.classList.toggle("reachable", pattern.reachable.has(key));
+    cell.classList.toggle("capture", pattern.capture.has(key));
+    cell.classList.toggle("selected", showSelectedCells && pattern.selected.has(key) && !isDirection);
+    cell.classList.toggle("direction", isDirection);
+    cell.classList.toggle("direction-unreachable", isDirectionUnreachable);
+  }
+}
+
+function closeFairyMoveViewerDialog() {
+  if (ui.fairyMoveViewerDialog?.open) ui.fairyMoveViewerDialog.close();
+}
+
+function openFairyMoveViewerDialog(initialPieceName = "") {
+  if (!ui.fairyMoveViewerDialog || !ui.fairyMoveViewerSelect) return;
+  const names = fairyMoveViewerPieceNames();
+  if (names.length <= 0) {
+    logLine("表示できるフェアリー駒がありません。");
+    return;
+  }
+  const requested = String(initialPieceName || "").trim();
+  const current = String(ui.fairyMoveViewerSelect.value || "").trim();
+  ui.fairyMoveViewerSelect.innerHTML = "";
+  for (const name of names) {
+    const op = document.createElement("option");
+    op.value = name;
+    op.textContent = `${displayNameForName(name)} (${name})`;
+    ui.fairyMoveViewerSelect.appendChild(op);
+  }
+  if (requested && names.includes(requested)) ui.fairyMoveViewerSelect.value = requested;
+  else if (current && names.includes(current)) ui.fairyMoveViewerSelect.value = current;
+  else ui.fairyMoveViewerSelect.value = names[0];
+  if (ui.fairyMoveViewerScenario) ui.fairyMoveViewerScenario.value = "";
+  syncVectorBoardCellSizes();
+  renderFairyMoveViewerBoard();
+  if (ui.fairyMoveViewerDialog.open) return;
+  try {
+    ui.fairyMoveViewerDialog.showModal();
+  } catch (_e) {
+    ui.fairyMoveViewerDialog.show();
+  }
+}
+
 function setCustomFairyVectorsFromArray(vectors) {
   const normalized = normalizeCustomMoveVectors(vectors);
   const text = formatCustomVectorsForLog(normalized);
   if (ui.customFairyVectorsInput) ui.customFairyVectorsInput.value = text;
-  updateCustomFairyVectorPreview();
+  updateCustomFairyVectorPreview(normalized);
 }
 
-function updateCustomFairyVectorPreview() {
+function updateCustomFairyVectorPreview(vectorsRaw = null) {
   if (!ui.customFairyVectorsPreview) return;
-  const vectors = normalizeCustomMoveVectors(ui.customFairyVectorsInput?.value || "");
+  const vectors =
+    vectorsRaw === null
+      ? normalizeCustomMoveVectors(ui.customFairyVectorsInput?.value || "")
+      : normalizeCustomMoveVectors(vectorsRaw);
+  updateCustomFairyVectorBoardCenter();
+  updateCustomFairyVectorBoardSelection(vectors);
   if (vectors.length <= 0) {
     ui.customFairyVectorsPreview.textContent = "（未入力）";
     return;
@@ -1856,7 +2984,7 @@ function buildKnightLikeVectors(dxRaw, dyRaw) {
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return [];
   const ax = Math.abs(dx);
   const ay = Math.abs(dy);
-  if (ax < 1 || ay < 1 || ax > 8 || ay > 8) return [];
+  if (ax < 1 || ay < 1 || ax > CUSTOM_VECTOR_BOARD_RADIUS || ay > CUSTOM_VECTOR_BOARD_RADIUS) return [];
   return [
     [ax, ay],
     [-ax, ay],
@@ -1896,7 +3024,7 @@ function applyCustomVectorPreset(presetKey) {
   if (key === "knight") {
     vectors = buildKnightLikeVectors(ui.customFairyDxInput?.value, ui.customFairyDyInput?.value);
     if (!vectors || vectors.length <= 0) {
-      logLine("桂型は dx/dy を 1〜8 で入力してください。", true);
+      logLine("桂型は dx/dy を 1〜9 で入力してください。", true);
       return;
     }
   }
@@ -2480,6 +3608,7 @@ function localBuildMetaFallback() {
     ruleLabels[key] = label;
   }
   ruleLabels.isardam_type_b = "Isardam（タイプB）";
+  ruleLabels.messigny_no_back = "直前戻り禁止";
   const displayMap = {
     玉: "玉",
     王: "王",
@@ -2845,6 +3974,15 @@ function localBuildRuleNameBase(rules, options = {}) {
           parts.push("Isardam（タイプB）");
         } else if (rules?.isardam) {
           parts.push("Isardam");
+        }
+        continue;
+      }
+      if (key === "messigny") {
+        if (!rules?.messigny) continue;
+        if (rules?.messigny_no_back) {
+          parts.push("Messigny(直前戻り禁止)");
+        } else {
+          parts.push(label);
         }
         continue;
       }
@@ -3714,6 +4852,9 @@ function localParseReplayMoveSpec(ctx, targetText) {
   token = token.replace(/[。,，,]+$/g, "");
   token = token.replace(/\(.*?\)/g, "");
   token = token.replace(/\[I[^\]]*\]/g, "");
+  const sourceSuffix = localExtractReplaySourceSuffix(token);
+  const sourceFrom = sourceSuffix?.from || null;
+  if (sourceSuffix) token = sourceSuffix.body;
 
   let rebirth = null;
   if (token.includes("/")) {
@@ -3799,6 +4940,7 @@ function localParseReplayMoveSpec(ctx, targetText) {
     promote: parsedPiece.promote,
     explicitNarazu: parsedPiece.explicitNarazu,
     isDrop: parsedPiece.isDrop,
+    sourceFrom,
     takeMakeStep,
   };
 }
@@ -3844,6 +4986,10 @@ function localReplayMoveMatchesSpec(mv, spec) {
   if (!mv || !spec) return false;
   if (spec.isDrop && mv.kind !== "drop") return false;
   if (spec.owner !== null && Number(mv.owner) !== Number(spec.owner)) return false;
+  if (spec.sourceFrom) {
+    if (!mv.from) return false;
+    if (Number(mv.from.x) !== Number(spec.sourceFrom.x) || Number(mv.from.y) !== Number(spec.sourceFrom.y)) return false;
+  }
   if (spec.neutralPiece === true && !Boolean(mv.neutral_piece)) return false;
   if (!mv.to) return false;
   if (spec.takeMakeStep) {
@@ -3937,6 +5083,10 @@ function localFindLegalByReplaySpec(ctx, spec, options = {}) {
   const shared = moves.filter((mv) => {
     if (!mv || !mv.to) return false;
     if (spec.owner !== null && Number(mv.owner) !== Number(spec.owner)) return false;
+    if (spec.sourceFrom) {
+      if (!mv.from) return false;
+      if (Number(mv.from.x) !== Number(spec.sourceFrom.x) || Number(mv.from.y) !== Number(spec.sourceFrom.y)) return false;
+    }
     if (spec.neutralPiece === true && !Boolean(mv.neutral_piece)) return false;
     if (spec.takeMakeStep) {
       const step =
@@ -4047,19 +5197,42 @@ function localParseRebirthCoordFromReplayText(rebirthText) {
   return { x, y };
 }
 
+function localExtractReplaySourceSuffix(tokenRaw) {
+  const token = String(tokenRaw || "").trim();
+  if (!token) return null;
+  const m = token.match(/<\s*([0-9０-９])([0-9０-９一二三四五六七八九])\s*$/);
+  if (!m) return null;
+  const x = localParseReplayFileChar(m[1]);
+  const y = localParseReplayRankChar(m[2]);
+  if (x === null || y === null) return null;
+  return {
+    from: { x: Number(x), y: Number(y) },
+    body: token.slice(0, m.index).trim(),
+  };
+}
+
 function localParseReplaySourceHint(ctx, targetText) {
   const tokenRaw = String(targetText || "").trim();
   if (!tokenRaw) return null;
-  const sourceMatch = tokenRaw.match(/\(([0-9０-９])([0-9０-９一二三四五六七八九])\)/);
-  if (!sourceMatch) return null;
-  const fromX = localParseReplayFileChar(sourceMatch[1]);
-  const fromY = localParseReplayRankChar(sourceMatch[2]);
-  if (fromX === null || fromY === null) return null;
+  const sourceSuffix = localExtractReplaySourceSuffix(tokenRaw);
+  let fromX = null;
+  let fromY = null;
+  if (sourceSuffix) {
+    fromX = Number(sourceSuffix.from.x);
+    fromY = Number(sourceSuffix.from.y);
+  } else {
+    const sourceMatch = tokenRaw.match(/\(([0-9０-９])([0-9０-９一二三四五六七八九])\)/);
+    if (!sourceMatch) return null;
+    fromX = localParseReplayFileChar(sourceMatch[1]);
+    fromY = localParseReplayRankChar(sourceMatch[2]);
+    if (fromX === null || fromY === null) return null;
+  }
 
   let core = localStripReplayOwnerPrefix(tokenRaw);
   core = core.replace(/[。,，,]+$/g, "");
   core = core.replace(/\(.*?\)/g, "");
   core = core.replace(/\[I[^\]]*\]/g, "");
+  if (sourceSuffix) core = sourceSuffix.body;
 
   let rebirth = null;
   if (core.includes("/")) {
@@ -5422,7 +6595,10 @@ function localApplyMoveCore(ctx, body) {
     Boolean(legalMv?.messigny_swap) &&
     targetAtToRaw &&
     Number(targetAtToRaw.owner) !== Number(moving.owner) &&
-    String(targetAtToRaw.name || "") === String(moving.name || "");
+    localEquivalentMoveName(String(targetAtToRaw.name || ""), String(moving.name || ""));
+  if (Boolean(legalMv?.messigny_swap) && !isSwap) {
+    throw localApiError("INVALID_MOVE", "messigny swap target is invalid");
+  }
   const swapSourcesExtra = isSwap ? new Set([`${to.x},${to.y}`]) : null;
   const imitatorPlan = Array.isArray(legalMv?.imitator_plan)
     ? cloneJson(legalMv.imitator_plan)
@@ -5787,6 +6963,11 @@ function localApplyRulePatch(ctx, rulesPatch, meta) {
   }
   if (ctx.state.rules.isardam_type_b) {
     ctx.state.rules.isardam = false;
+  }
+  if (ctx.state.rules.messigny_no_back) {
+    ctx.state.rules.messigny = true;
+  } else if (!ctx.state.rules.messigny) {
+    ctx.state.rules.messigny_no_back = false;
   }
   if (ctx.state.rules.k_madrasi) {
     ctx.state.rules.madrasi = false;
@@ -6298,7 +7479,7 @@ const LOCAL_PIECE_SPECS = Object.freeze({
   Kangaroo: { type: "kangaroo", vectors: LOCAL_VEC_KING },
   Equihopper: { type: "equi", vectors: [] },
   Eagle: { type: "eagle", vectors: LOCAL_VEC_KING },
-  Moose: { type: "none" },
+  Moose: { type: "bent", vectors: LOCAL_VEC_KING, angle: 45 },
   Sparrow: { type: "none" },
   獅子: { type: "area2", vectors: LOCAL_VEC_AREA2 },
   石: { type: "stone" },
@@ -6418,6 +7599,53 @@ function localMoveVecForOwner(owner, vec) {
   return [dx, dy];
 }
 
+function localBentTurnVectors(dxRaw, dyRaw, angleRaw = 90) {
+  const dx = Number(dxRaw);
+  const dy = Number(dyRaw);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return [];
+  const angle = Math.trunc(Number(angleRaw));
+  const out = [];
+  const seen = new Set();
+  const gcd = (aRaw, bRaw) => {
+    let a = Math.abs(Math.trunc(Number(aRaw) || 0));
+    let b = Math.abs(Math.trunc(Number(bRaw) || 0));
+    if (a === 0) return b || 1;
+    if (b === 0) return a || 1;
+    while (b !== 0) {
+      const r = a % b;
+      a = b;
+      b = r;
+    }
+    return a || 1;
+  };
+  const add = (txRaw, tyRaw) => {
+    const baseTx = Number(txRaw);
+    const baseTy = Number(tyRaw);
+    if (!Number.isFinite(baseTx) || !Number.isFinite(baseTy)) return;
+    const g = gcd(baseTx, baseTy);
+    const tx = Math.trunc(baseTx / g);
+    const ty = Math.trunc(baseTy / g);
+    if (!Number.isFinite(tx) || !Number.isFinite(ty) || (tx === 0 && ty === 0)) return;
+    const key = `${tx},${ty}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push([tx, ty]);
+  };
+  if (angle === 45) {
+    add(dx - dy, dx + dy);
+    add(dx + dy, dy - dx);
+    return out;
+  }
+  if (angle === 135) {
+    add(-dx - dy, dx - dy);
+    add(dy - dx, -dx - dy);
+    return out;
+  }
+  add(-dy, dx);
+  add(dy, -dx);
+  return out;
+}
+
 function localResolveNeutralOrientationOwner(piece, fallbackOwner = 0) {
   const pieceOwner = Number(piece?.owner);
   if (pieceOwner !== -1) return pieceOwner;
@@ -6487,7 +7715,7 @@ function localIsMessignySwapTarget(pieces, piece, toX, toY, rules = {}) {
   const targetOwner = Number(target.owner);
   if (targetOwner !== 0 && targetOwner !== 1) return false;
   if (targetOwner === owner) return false;
-  return String(target.name || "") === String(piece.name || "");
+  return localEquivalentMoveName(String(target.name || ""), String(piece.name || ""));
 }
 
 function localGetMessignySwapTargets(pieces, piece, rules = {}) {
@@ -6500,7 +7728,7 @@ function localGetMessignySwapTargets(pieces, piece, rules = {}) {
     const o = Number(p.owner);
     if (o !== 0 && o !== 1) continue;
     if (o === owner) continue;
-    if (String(p.name || "") !== String(piece.name || "")) continue;
+    if (!localEquivalentMoveName(String(p.name || ""), String(piece.name || ""))) continue;
     out.push({ x: Number(p.x), y: Number(p.y) });
   }
   return out;
@@ -6875,6 +8103,36 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
     }
     return;
   }
+  if (spec.type === "bent") {
+    const bentAngle = Number(spec?.angle || 90);
+    for (const vec of vectors) {
+      const [dx, dy] = localMoveVecForOwner(moveOwner, vec);
+      let hx = x;
+      let hy = y;
+      while (true) {
+        hx += dx;
+        hy += dy;
+        if (!localInBoard(hx, hy)) break;
+        const hurdle = pieceMap.get(`${hx},${hy}`) || null;
+        if (!hurdle) continue;
+        if (localIsStonePiece(hurdle)) break;
+        if (localIsHolePiece(hurdle)) continue;
+        const turns = localBentTurnVectors(dx, dy, bentAngle);
+        for (const [txv, tyv] of turns) {
+          const tx = hx + txv;
+          const ty = hy + tyv;
+          if (!localInBoard(tx, ty)) continue;
+          const t = pieceMap.get(`${tx},${ty}`) || null;
+          if (t && (localIsStonePiece(t) || localIsHolePiece(t) || localIsPyramidPiece(t))) continue;
+          if (attackMode || !t || !isFriendlyTarget(t)) {
+            localPushTarget(out, seen, tx, ty, isCapturableTarget(t));
+          }
+        }
+        break;
+      }
+    }
+    return;
+  }
   if (spec.type === "eagle") {
     for (const vec of vectors) {
       const [dx, dy] = localMoveVecForOwner(moveOwner, vec);
@@ -6976,21 +8234,24 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
       for (const turnDir of [1, -1]) {
         let cx = x;
         let cy = y;
-        for (let stepI = 0; stepI < vecCount; stepI += 1) {
+        const visited = new Set([`${cx},${cy}`]);
+        for (let stepI = 0; stepI < 256; stepI += 1) {
           const idx = (startIdx + turnDir * stepI + vecCount * 10) % vecCount;
-        const [vx, vyBase] = vectors[idx];
-        const [, vy] = localMoveVecForOwner(moveOwner, [0, vyBase]);
-        const nx = cx + vx;
-        const ny = cy + vy;
-        if (!localInBoard(nx, ny)) break;
-        if (nx === x && ny === y) {
-          localPushTarget(out, seen, nx, ny, false);
+          const [vx, vy] = localMoveVecForOwner(moveOwner, vectors[idx]);
+          const nx = cx + vx;
+          const ny = cy + vy;
+          if (!localInBoard(nx, ny)) break;
+          const nkey = `${nx},${ny}`;
+          if (nx === x && ny === y) {
+            localPushTarget(out, seen, nx, ny, false);
             break;
           }
           const t = pieceMap.get(`${nx},${ny}`) || null;
           if (t) {
             if (localIsOpaqueBarrierPiece(t)) break;
             if (localIsHolePiece(t)) {
+              if (visited.has(nkey)) break;
+              visited.add(nkey);
               cx = nx;
               cy = ny;
               continue;
@@ -7000,7 +8261,9 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
             }
             break;
           }
+          if (visited.has(nkey)) break;
           localPushTarget(out, seen, nx, ny, false);
+          visited.add(nkey);
           cx = nx;
           cy = ny;
         }
@@ -7052,10 +8315,17 @@ function localGenerateTargetsBySpec(spec, piece, pieceMap, x, y, out, seen, mode
           if (localIsStonePiece(t)) break;
           if (localIsHolePiece(t) || localIsPyramidPiece(t)) continue;
           hurdles += 1;
-        }
-        if (hurdles === 2) {
-          if (!t || (!localIsPyramidPiece(t) && (attackMode || !isFriendlyTarget(t)))) {
-            localPushTarget(out, seen, tx, ty, isCapturableTarget(t));
+          if (hurdles > 2) break;
+          if (hurdles < 2) continue;
+          const lx = tx + dx;
+          const ly = ty + dy;
+          if (!localInBoard(lx, ly)) break;
+          const landing = pieceMap.get(`${lx},${ly}`) || null;
+          if (landing && (localIsStonePiece(landing) || localIsHolePiece(landing) || localIsPyramidPiece(landing))) {
+            break;
+          }
+          if (attackMode || !landing || !isFriendlyTarget(landing)) {
+            localPushTarget(out, seen, lx, ly, isCapturableTarget(landing));
           }
           break;
         }
@@ -7847,6 +9117,10 @@ function localIsMatedByRulesForAnalysis(
   if (Array.isArray(simCtx?.legal?.moves) && simCtx.legal.moves.length > 0) {
     return false;
   }
+  // 「王手義務で指し手なし」は詰み判定に含めない（打歩詰再帰判定でも同様）。
+  if (String(simCtx?.legal?.status?.kind || "") === "sente_obligation_no_moves") {
+    return false;
+  }
 
   if (respectUchifuRule && localGetUchifuModeFromRules(rules) === "simple") {
     if (!localLastMoveIsPawnDrop(lastMoveInfo)) return false;
@@ -8181,7 +9455,10 @@ function localIsIsardamKingCaptureLegal(
       typeAttrsOrCtx
     );
     if (!sim || !sim.board || !Array.isArray(sim.board.pieces)) continue;
-    // Isardam: 王手判定は通常どおりとし、玉取り後の同種利き衝突では無効化しない。
+    // Isardam Type A: 玉取り後に同種利き衝突が発生する筋は王手として無効。
+    if (!Boolean(rules?.isardam_type_b) && localHasIsardamConflict(sim.board.pieces, rules)) {
+      continue;
+    }
     return true;
   }
   return false;
@@ -8388,6 +9665,7 @@ function localHasOpponentKingCaptureMoveByLegalScan(
     analysisNoUchifu: true,
     skipSort: true,
     skipNeutralSelfCheckLegalScan: true,
+    skipSenteRuntimeObligationFilter: true,
   });
   const protectedKingOwners = new Set([Number(selfCheckOwner), -1]);
   const protectedKingCountBefore = (nextPieces || []).filter(
@@ -8825,6 +10103,41 @@ function localBuildAttackPathsForPiece(pieces, fromX, fromY, owner, targetSet, r
       }
       continue;
     }
+    if (part.type === "eagle" || part.type === "bent") {
+      const bentAngle = part.type === "bent" ? Number(part?.angle || 90) : 90;
+      for (const vec of vectors) {
+        const [dx, dy] = moveDyOnly(vec);
+        let hx = Number(fromX);
+        let hy = Number(fromY);
+        while (true) {
+          hx += dx;
+          hy += dy;
+          if (!localInBoard(hx, hy)) break;
+          const hurdle = pieceMap.get(localCoordKeyXY(hx, hy)) || null;
+          if (!hurdle) continue;
+          if (localIsStonePiece(hurdle)) break;
+          if (localIsHolePiece(hurdle)) continue;
+          const turns =
+            part.type === "eagle"
+              ? [
+                  [-dy, dx],
+                  [dy, -dx],
+                ]
+              : localBentTurnVectors(dx, dy, bentAngle);
+          for (const [txv, tyv] of turns) {
+            const tx = hx + Number(txv || 0);
+            const ty = hy + Number(tyv || 0);
+            if (!localInBoard(tx, ty)) continue;
+            addPath(tx, ty, [
+              { x: hx, y: hy },
+              { x: tx, y: ty },
+            ]);
+          }
+          break;
+        }
+      }
+      continue;
+    }
     if (part.type === "rose") {
       const vecCount = vectors.length;
       for (let startIdx = 0; startIdx < vecCount; startIdx += 1) {
@@ -8832,18 +10145,23 @@ function localBuildAttackPathsForPiece(pieces, fromX, fromY, owner, targetSet, r
           let cx = Number(fromX);
           let cy = Number(fromY);
           const chain = [];
-          for (let stepI = 0; stepI < vecCount; stepI += 1) {
+          const visited = new Set([`${cx},${cy}`]);
+          for (let stepI = 0; stepI < 256; stepI += 1) {
             const idx = (startIdx + turnDir * stepI + vecCount * 10) % vecCount;
-            const [vx, vyBase] = vectors[idx];
-            const [, vy] = moveDyOnly([0, vyBase]);
-            const nx = cx + Number(vx || 0);
+            const [vxRaw, vyRaw] = moveDyOnly(vectors[idx]);
+            const vx = Number(vxRaw || 0);
+            const vy = Number(vyRaw || 0);
+            const nx = cx + vx;
             const ny = cy + vy;
             if (!localInBoard(nx, ny)) break;
+            const nkey = `${nx},${ny}`;
             chain.push({ x: nx, y: ny });
             addPath(nx, ny, chain);
             if (nx === Number(fromX) && ny === Number(fromY)) break;
             const targetPiece = pieceMap.get(localCoordKeyXY(nx, ny)) || null;
             if (targetPiece && localIsOpaqueBarrierPiece(targetPiece)) break;
+            if (visited.has(nkey)) break;
+            visited.add(nkey);
             cx = nx;
             cy = ny;
             if (targetPiece && !localIsHolePiece(targetPiece)) break;
@@ -9178,6 +10496,122 @@ function localImitatorMoveRejectedByRuntimeSelfCheckProbe(ctx, mv) {
   }
 }
 
+function localRuntimeSimulateMoveState(ctx, pieces, hands, turn, rules, mv) {
+  if (!mv || mv.kind !== "move") return null;
+  if (!mv?.from || !mv?.to) return null;
+  try {
+    const currentNode = localHistoryCurrentNode(ctx);
+    const prevPosKey = localPreviousPositionKeyFromContext(ctx);
+    const simState = {
+      mode: "play",
+      turn: Number(turn),
+      board: {
+        width: 9,
+        height: 9,
+        pieces: cloneJson(pieces || []),
+      },
+      hands: localCloneHands(hands),
+      rules: cloneJson(rules || {}),
+    };
+    const simCtx = localBuildAnalysisContext(
+      simState,
+      currentNode?.last_move_info || null,
+      String(currentNode?.move_str || ""),
+      prevPosKey,
+      ctx
+    );
+    const body = {
+      expected_revision: Number(simCtx?.revision || 0),
+      from: { x: Number(mv.from.x), y: Number(mv.from.y) },
+      to: { x: Number(mv.to.x), y: Number(mv.to.y) },
+      promote: Boolean(mv.promote),
+      no_touch: true,
+      skip_state_backup: true,
+      skip_legal_precompute: true,
+      prevalidated_move: mv,
+    };
+    if (mv?.rebirth && localInBoard(Number(mv.rebirth.x), Number(mv.rebirth.y))) {
+      body.rebirth = { x: Number(mv.rebirth.x), y: Number(mv.rebirth.y) };
+    }
+    if (typeof mv?.messigny_swap === "boolean") {
+      body.messigny_swap = Boolean(mv.messigny_swap);
+    }
+    localApplyMoveCore(simCtx, body);
+    return simCtx?.state && typeof simCtx.state === "object" ? simCtx.state : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function localSenteCheckObligationSatisfiedByRuntime(
+  ctx,
+  pieces,
+  hands,
+  turn,
+  rules,
+  mv,
+  options = {}
+) {
+  if (!mv) return false;
+  const hasImitatorSync = Array.isArray(mv?.imitator_plan) && mv.imitator_plan.length > 0;
+  const simState = hasImitatorSync
+    ? localRuntimeSimulateMoveState(ctx, pieces, hands, turn, rules, mv) ||
+      localSimulateStateAfterCandidate(pieces, hands, turn, mv, rules, ctx)
+    : localSimulateStateAfterCandidate(pieces, hands, turn, mv, rules, ctx);
+  if (!simState) return false;
+  const nextPieces = simState.board?.pieces;
+  const nextHands = simState.hands;
+  if (!Array.isArray(nextPieces)) return false;
+  const simInfo = localCandidateLastMoveInfo(mv);
+  const simMoveStr = String(mv?.notation || "");
+  const defender = Number(turn) === 0 ? 1 : 0;
+
+  if (localMoveCapturesKingFromPosition(pieces, mv, rules)) return true;
+
+  const givesCheck = localIsInCheckWithRules(nextPieces, defender, rules, {
+    lastMoveInfo: simInfo,
+    lastMoveStr: simMoveStr,
+    ignoreCaptureRepeatType: true,
+    neutralTurnOwner: Number(turn),
+    ctx,
+  });
+  if (givesCheck) {
+    // Imitator 合成手などで高速判定が過検出することがあるため、
+    // 次局面での「実際の玉取り可能性」を追加で確認する。
+    if (
+      localHasOpponentKingCaptureMoveByLegalScan(
+        nextPieces,
+        nextHands,
+        defender,
+        rules,
+        simInfo,
+        simMoveStr,
+        ctx
+      )
+    ) {
+      return true;
+    }
+  }
+
+  if (Boolean(options?.allowStalemateFinishWithoutCheck)) {
+    return localIsImmediateStalemateForOwnerAfterMove(
+      nextPieces,
+      nextHands,
+      defender,
+      rules,
+      simInfo,
+      simMoveStr,
+      ctx,
+      {
+        allInPrevKey: typeof options?.allInPrevKey === "string" ? options.allInPrevKey : null,
+        analysisNoUchifu: Boolean(options?.analysisNoUchifu),
+        analysisIgnoreTorikin: Boolean(options?.analysisIgnoreTorikin),
+      }
+    );
+  }
+  return false;
+}
+
 function localFilterMovesByRules(ctx, candidates, turn, rules, options = {}) {
   let working = Array.isArray(candidates) ? candidates.slice() : [];
   if (working.length === 0) return [];
@@ -9348,6 +10782,7 @@ function localComputeLegalAll(ctx, options = {}) {
   const skipStatusEvaluation = Boolean(options?.skipStatusEvaluation);
   const skipSort = Boolean(options?.skipSort);
   const skipNeutralSelfCheckLegalScan = Boolean(options?.skipNeutralSelfCheckLegalScan);
+  const skipSenteRuntimeObligationFilter = Boolean(options?.skipSenteRuntimeObligationFilter);
   const reuseAnnotatedStatePieces = Boolean(options?.reuseAnnotatedStatePieces);
   const recursionDepthRaw = Number.parseInt(options?.uchifuRecursionDepth, 10);
   const recursionMaxRaw = Number.parseInt(options?.uchifuRecursionMax, 10);
@@ -10018,6 +11453,13 @@ function localComputeLegalAll(ctx, options = {}) {
     ) {
       continue;
     }
+    if (
+      mv.messigny_swap &&
+      Boolean(rules?.[MESSIGNY_NO_BACK_RULE_KEY]) &&
+      localIsReturnToPreviousPositionByState(ctx, simState)
+    ) {
+      continue;
+    }
     if (allInShogi && localIsReturnToPreviousPositionByState(ctx, simState)) {
       continue;
     }
@@ -10190,6 +11632,7 @@ function localComputeLegalAll(ctx, options = {}) {
   let legalNoObligation = null;
   let legalFiltered = [];
   if (requiresSenteCheck) {
+    legalNoObligation = applyRuleFilterNoGlobalGreedyToBoard(preObligation);
     const obligationApplied = preObligation.filter(
       (mv) => Boolean(mv._gives_check) || Boolean(mv._takes_king) || Boolean(mv._stalemate_finish)
     );
@@ -10201,7 +11644,24 @@ function localComputeLegalAll(ctx, options = {}) {
   if (!skipSort) {
     legalFiltered.sort((a, b) => String(a?.notation || "").localeCompare(String(b?.notation || ""), "ja"));
   }
-  let legal = legalFiltered.map((mv) => {
+  let legalSource = legalFiltered;
+  const hasImitatorOnBoard = pieces.some((p) => p && localIsImitatorPiece(p));
+  if (
+    requiresSenteCheck &&
+    hasImitatorOnBoard &&
+    legalSource.length > 0 &&
+    !skipSenteRuntimeObligationFilter
+  ) {
+    legalSource = legalSource.filter((mv) =>
+      localSenteCheckObligationSatisfiedByRuntime(ctx, pieces, hands, turn, rules, mv, {
+        allowStalemateFinishWithoutCheck,
+        allInPrevKey: getCurrentPositionKeyNoTurn(),
+        analysisNoUchifu,
+        analysisIgnoreTorikin: Boolean(rules?.torikin) && !Boolean(rules?.zentorikin),
+      })
+    );
+  }
+  let legal = legalSource.map((mv) => {
     const out = { ...mv };
     delete out._gives_check;
     delete out._takes_king;
@@ -10240,20 +11700,17 @@ function localComputeLegalAll(ctx, options = {}) {
   if (skipStatusEvaluation) {
     status = { kind: "none", text: "" };
   } else if (legal.length === 0) {
-    const hasMovesWithoutCheck =
-      !skipNoCheckStatusProbe &&
-      turn === 0 &&
-      !allowSenteNonCheck &&
-      localHasMovesWithNonCheckAllowed(ctx, turn, {
-        analysisNoUchifu,
-        analysisIgnoreTorikin: Boolean(rules?.torikin) && !Boolean(rules?.zentorikin),
-      });
-    if (turn === 0 && !allowSenteNonCheck && !legalNoObligation) {
-      legalNoObligation = applyRuleFilterNoGlobalGreedyToBoard(preObligation);
-    }
-    const noObligationCount = Array.isArray(legalNoObligation) ? legalNoObligation.length : 0;
-    if (hasMovesWithoutCheck || (turn === 0 && !allowSenteNonCheck && noObligationCount > 0)) {
-      status = { kind: "sente_obligation_no_moves", text: "王手義務で指し手なし" };
+    const selfInCheckNow = localIsInCheckWithRules(pieces, turn, rules, { ctx });
+    if (turn === 0 && !allowSenteNonCheck && !selfInCheckNow) {
+      // 先手王手義務が有効で、かつ自玉は王手でない局面で0手のとき:
+      // 王手義務を外しても0手ならステイルメイトを優先し、
+      // 王手義務を外せば指せる手がある場合のみ「王手義務で指し手なし」。
+      const hasNoObligationMove = Array.isArray(legalNoObligation) && legalNoObligation.length > 0;
+      if (!hasNoObligationMove) {
+        status = { kind: "stalemate", text: "ステイルメイト" };
+      } else {
+        status = { kind: "sente_obligation_no_moves", text: "王手義務で指し手なし" };
+      }
     } else {
       const cur = localHistoryCurrentNode(ctx);
       const curInfo = cur?.last_move_info || null;
@@ -10777,6 +12234,7 @@ function localParseRuleNameText(ruleText, meta) {
   const parsed = {};
   for (const [key] of defs) parsed[key] = false;
   if (!localHasOwn(parsed, "isardam_type_b")) parsed.isardam_type_b = false;
+  if (!localHasOwn(parsed, "messigny_no_back")) parsed.messigny_no_back = false;
   parsed.detect_sennichite = true;
 
   let text = String(ruleText || "").trim();
@@ -10784,6 +12242,11 @@ function localParseRuleNameText(ruleText, meta) {
   if (annaNifuParenPattern.test(text)) {
     parsed.annan_nifu_invalid = true;
     text = text.replace(annaNifuParenPattern, "");
+  }
+  const messignyNoBackPattern = /Messigny\s*(?:\(|（)\s*直前戻り禁止\s*(?:\)|）)/g;
+  if (messignyNoBackPattern.test(text)) {
+    parsed.messigny_no_back = true;
+    text = text.replace(messignyNoBackPattern, "Messigny");
   }
   const strategyOptions =
     Array.isArray(meta?.strategy_options) && meta.strategy_options.length > 0
@@ -10820,22 +12283,36 @@ function localParseRuleNameText(ruleText, meta) {
   parsed.strategy = strategy;
   parsed.objective = objective;
 
-  for (const [key, label] of defs) {
-    if (key === "isardam") {
-      if (text.startsWith("Isardam（タイプB）")) {
-        parsed.isardam_type_b = true;
-        text = text.slice("Isardam（タイプB）".length);
-      } else if (text.startsWith("Isardam")) {
-        parsed.isardam = true;
-        text = text.slice("Isardam".length);
+  // ルール接頭辞を先頭から繰り返し消費する。
+  // 解析順に依存せず「天竺PWCマキシ成禁...」のような複合表記を復元できるようにする。
+  for (let guard = 0; guard < 128 && text.length > 0; guard += 1) {
+    let consumed = false;
+    if (text.startsWith("Isardam（タイプB）")) {
+      parsed.isardam_type_b = true;
+      text = text.slice("Isardam（タイプB）".length);
+      consumed = true;
+    } else if (text.startsWith("Isardam")) {
+      parsed.isardam = true;
+      text = text.slice("Isardam".length);
+      consumed = true;
+    } else {
+      let best = null;
+      for (const [key, label] of defs) {
+        if (key === "isardam") continue;
+        if (!label || !text.startsWith(label)) continue;
+        if (!best || String(label).length > String(best.label).length) {
+          best = { key, label };
+        }
       }
-      continue;
+      if (best) {
+        parsed[best.key] = true;
+        text = text.slice(String(best.label).length);
+        consumed = true;
+      }
     }
-    if (text.startsWith(label)) {
-      parsed[key] = true;
-      text = text.slice(label.length);
-    }
+    if (!consumed) break;
   }
+  if (parsed.messigny_no_back) parsed.messigny = true;
   return parsed;
 }
 
@@ -11976,9 +13453,15 @@ function localDisplayPieceName(name) {
     if (pieceName === "Zero" && ms.trim().toLowerCase() === "zero") {
       return "零";
     }
+    if (localIsNeutralImitatorName(pieceName)) {
+      return localNormalizeNeutralImitatorDisplay(pieceName, ms);
+    }
     return ms;
   }
   if (pieceName === "Zero") return "零";
+  if (localIsNeutralImitatorName(pieceName)) {
+    return localNormalizeNeutralImitatorDisplay(pieceName, pieceName === "Teleport-Imitator" ? "□" : "■");
+  }
   return pieceName;
 }
 
@@ -12005,9 +13488,26 @@ function localKifuPieceNameForUsage(name) {
   return localDisplayPieceName(name);
 }
 
+function localNormalizeNeutralImitatorDisplay(name, text) {
+  const raw = String(text || "").trim();
+  if (!raw) {
+    return String(name || "") === "Teleport-Imitator" ? "□" : "■";
+  }
+  if (!localIsNeutralImitatorName(name)) return raw;
+  const stripped = raw.replace(/\(I\)/gi, "").trim();
+  if (stripped) return stripped;
+  return String(name || "") === "Teleport-Imitator" ? "□" : "■";
+}
+
 function localFormatFairyUsageLeftLabel(name, displayOverride = null) {
   const boardText = String(displayOverride || localDisplayPieceName(name) || "").trim();
+  if (localIsNeutralImitatorName(name)) {
+    return boardText;
+  }
   const kifuText = localKifuPieceNameForUsage(name);
+  if (kifuText && boardText.endsWith(`(${kifuText})`)) {
+    return boardText;
+  }
   if (kifuText && kifuText !== boardText) {
     return `${boardText}(${kifuText})`;
   }
@@ -12043,7 +13543,7 @@ function localCollectChangedAttrsFromRaw(rawAttrs, baseAttrs) {
 
 function localEffectiveDisplayLabel(name, effectiveAttrs) {
   const dn = typeof effectiveAttrs?.display_name === "string" ? effectiveAttrs.display_name.trim() : "";
-  if (dn) return dn;
+  if (dn) return localNormalizeNeutralImitatorDisplay(name, dn);
   return localDisplayPieceName(name);
 }
 
@@ -12682,6 +14182,10 @@ function createLocalEngine() {
     const includeLegal = localReadBoolQueryParam(queryParams, "include_legal", true);
     const includeHistory = localReadBoolQueryParam(queryParams, "include_history", true);
     const fastState = localReadBoolQueryParam(queryParams, "fast_state", false);
+    if (skipLegalCompute && changed) {
+      // 高速履歴移動後に getLegalAll を呼んだとき、前局面の合法手キャッシュを返さないよう無効化する。
+      ctx.legal_cache_revision = -1;
+    }
     if (!skipLegalCompute && (includeLegal || changed)) {
       localComputeLegalAll(ctx);
     }
@@ -13232,6 +14736,32 @@ function clearHistoryPlayTimer() {
   }
 }
 
+function requestPlaybackLegalListUpdate() {
+  if (!historyPlayRunning) return;
+  if (!sessionId || state?.mode !== "play") return;
+  if (isReverseSubModeActive()) return;
+  historyPlayLegalListPending = true;
+  if (historyPlayLegalListInFlight) return;
+  historyPlayLegalListInFlight = true;
+  historyPlayLegalListPending = false;
+  void refreshLegal()
+    .then(() => {
+      if (!historyPlayRunning) return;
+      if (!sessionId || state?.mode !== "play") return;
+      if (isReverseSubModeActive()) return;
+      renderLegalList();
+    })
+    .catch((e) => {
+      logLine(e.message || String(e), true);
+    })
+    .finally(() => {
+      historyPlayLegalListInFlight = false;
+      if (historyPlayLegalListPending && historyPlayRunning) {
+        requestPlaybackLegalListUpdate();
+      }
+    });
+}
+
 function setHistoryPlayButtonState() {
   const playable = Boolean(state && state.mode === "play");
   const reverseActive = historyPlayRunning && historyPlayDirection < 0;
@@ -13260,6 +14790,7 @@ function stopHistoryPlayback(options = {}) {
   }
   historyPlayRunning = false;
   historyPlayDirection = 0;
+  historyPlayLegalListPending = false;
   clearHistoryPlayTimer();
   setHistoryPlayButtonState();
   if (refreshLegalData && (forceRefreshLegal || legalNeedsRefreshAfterPlayback) && sessionId && state?.mode === "play") {
@@ -13326,6 +14857,7 @@ async function historyPlaybackStep() {
       logLine(actionKind === "forward" ? "棋譜再生：末尾に到達" : "棋譜再生：先頭に到達");
       return;
     }
+    requestPlaybackLegalListUpdate();
     const finishedAt = window.performance?.now ? window.performance.now() : Date.now();
     const elapsedMs = Math.max(0, finishedAt - startedAt);
     const intervalMs = getHistoryPlayIntervalMs();
@@ -13345,6 +14877,7 @@ function startHistoryPlayback(direction) {
   if (!state || state.mode !== "play") return;
   clearHistoryPlayTimer();
   legalNeedsRefreshAfterPlayback = false;
+  historyPlayLegalListPending = false;
   historyPlayDirection = dir;
   historyPlayRunning = true;
   setHistoryPlayButtonState();
@@ -14211,7 +15744,7 @@ function displayNameForName(name, owner = null) {
   const typeAttrs = state?.type_attrs && typeof state.type_attrs === "object" ? state.type_attrs : {};
   const effective = localMergePieceAttrs(localDefaultPieceAttrs(pieceName), typeAttrs[String(pieceName || "")] || {});
   if (effective.display_name !== undefined && effective.display_name !== null && String(effective.display_name).trim() !== "") {
-    return String(effective.display_name);
+    return localNormalizeNeutralImitatorDisplay(pieceName, String(effective.display_name));
   }
   return localDisplayPieceNameByOwner(pieceName, owner);
 }
@@ -14299,7 +15832,7 @@ function displayNameForPiece(piece) {
   if (!piece) return "";
   const custom = piece?.attrs?.display_name;
   if (custom !== undefined && custom !== null && String(custom).trim() !== "") {
-    return String(custom);
+    return localNormalizeNeutralImitatorDisplay(piece?.name, String(custom));
   }
   return displayNameForName(piece.name, piece.owner);
 }
@@ -14434,6 +15967,11 @@ function applyRuleDraftConstraints(draft, changedPatch) {
   }
   if (draft.isardam_type_b) {
     draft.isardam = false;
+  }
+  if (draft[MESSIGNY_NO_BACK_RULE_KEY]) {
+    draft.messigny = true;
+  } else if (!draft.messigny) {
+    draft[MESSIGNY_NO_BACK_RULE_KEY] = false;
   }
   if (draft.k_madrasi) {
     draft.madrasi = false;
@@ -16924,9 +18462,67 @@ function updateHistoryActionButtons() {
   const parent = node?.parent_id ? nodesById.get(node.parent_id) : null;
   const siblings = Array.isArray(parent?.children) ? parent.children : [];
   const canDelete = Boolean(node && node.parent_id);
-  const canPromote = Boolean(node && node.parent_id && siblings.length > 1 && siblings[0] !== node.node_id);
+  const canPromoteByTarget = Boolean(node && node.parent_id && siblings.length > 1 && siblings[0] !== node.node_id);
+  const rows = buildHistoryRows();
+  const hasVariationLine = Array.isArray(rows) && rows.some((r) => Boolean(r?.isVariation));
+  const canPromote = hasVariationLine ? true : canPromoteByTarget;
   setHistoryActionButtonVisible(ui.btnPromoteBranch, canPromote);
   setHistoryActionButtonVisible(ui.btnDeleteBranch, canDelete);
+}
+
+function collectTreeMainlineIds(tree) {
+  if (!tree || !Array.isArray(tree.nodes)) return [];
+  const byId = new Map(tree.nodes.map((n) => [n.node_id, n]));
+  const out = [];
+  const seen = new Set();
+  let id = tree.root_id || null;
+  const maxSteps = Math.max(1000, byId.size * 4);
+  let guard = 0;
+  while (id && guard < maxSteps && !seen.has(id)) {
+    guard += 1;
+    seen.add(id);
+    out.push(id);
+    const node = byId.get(id);
+    const children = Array.isArray(node?.children) ? node.children : [];
+    id = children[0] || null;
+  }
+  return out;
+}
+
+function collectTreeVariationRootIds(tree) {
+  if (!tree || !Array.isArray(tree.nodes)) return [];
+  const byId = new Map(tree.nodes.map((n) => [n.node_id, n]));
+  const mainlineIds = collectTreeMainlineIds(tree);
+  const out = [];
+  const seen = new Set();
+  for (const id of mainlineIds) {
+    const node = byId.get(id);
+    const children = Array.isArray(node?.children) ? node.children : [];
+    for (let i = 1; i < children.length; i += 1) {
+      const childId = String(children[i] || "");
+      if (!childId || seen.has(childId)) continue;
+      seen.add(childId);
+      out.push(childId);
+    }
+  }
+  return out;
+}
+
+function collectForwardDeletableBranchRootIds(tree) {
+  if (!tree || !Array.isArray(tree.nodes)) return [];
+  const byId = new Map(tree.nodes.map((n) => [n.node_id, n]));
+  const roots = collectTreeVariationRootIds(tree);
+  const out = [];
+  const seen = new Set();
+  for (const id of roots) {
+    const sid = String(id || "");
+    if (!sid || seen.has(sid)) continue;
+    const node = byId.get(sid);
+    if (!node || !node.parent_id) continue;
+    seen.add(sid);
+    out.push(sid);
+  }
+  return out;
 }
 
 function localHistoryNodeMapForUi() {
@@ -16984,19 +18580,33 @@ function localAdvanceHistoryCurrentIdInUi(kind) {
   return true;
 }
 
+function rowTopInScrollContainer(containerEl, rowEl) {
+  if (!containerEl || !rowEl) return 0;
+  const listRect = containerEl.getBoundingClientRect();
+  const rowRect = rowEl.getBoundingClientRect();
+  return Number(containerEl.scrollTop || 0) + (rowRect.top - listRect.top);
+}
+
 function syncHistoryScrollToCurrentFast() {
   if (!ui.historyList || !historyRenderRowOrder.length) return false;
   const list = ui.historyList;
   const currentId = historyTree?.current_id || null;
   if (!currentId) return false;
-  const currentIndex = Number(historyRenderRowIndexByNodeId.get(currentId));
-  if (!Number.isFinite(currentIndex) || currentIndex < 0) return false;
-  const topIndex = Math.max(0, currentIndex - 9);
-  const topNodeId = historyRenderRowOrder[topIndex];
-  if (!topNodeId) return false;
-  const topEl = historyRenderRowByNodeId.get(topNodeId);
-  if (!topEl) return false;
-  const targetTop = Math.max(0, Math.min(Math.max(0, list.scrollHeight - list.clientHeight), Number(topEl.offsetTop || 0)));
+  const curEl = historyRenderRowByNodeId.get(currentId);
+  if (!curEl) return false;
+  const rowTop = rowTopInScrollContainer(list, curEl);
+  const rowBottom = rowTop + Number(curEl.getBoundingClientRect().height || 0);
+  const viewTop = Number(list.scrollTop || 0);
+  const viewBottom = viewTop + Number(list.clientHeight || 0);
+  const margin = 8;
+  if (rowTop >= viewTop + margin && rowBottom <= viewBottom - margin) return true;
+  const targetTop = Math.max(
+    0,
+    Math.min(
+      Math.max(0, list.scrollHeight - list.clientHeight),
+      rowTop - Math.floor((Number(list.clientHeight || 0) * 0.35))
+    )
+  );
   if (Math.abs(list.scrollTop - targetTop) > 1) list.scrollTop = targetTop;
   return true;
 }
@@ -17907,6 +19517,45 @@ function promoteReverseBranchNode(nodeId) {
   return true;
 }
 
+function collectPromotableVariationNodeIds(rows, nodesById) {
+  const out = [];
+  const seen = new Set();
+  const list = Array.isArray(rows) ? rows : [];
+  const map = nodesById instanceof Map ? nodesById : new Map();
+  for (const row of list) {
+    const nodeId = String(row?.nodeId || "");
+    if (!nodeId || seen.has(nodeId)) continue;
+    if (!Boolean(row?.isVariation)) continue;
+    const node = map.get(nodeId);
+    const parent = node?.parent_id ? map.get(node.parent_id) : null;
+    const siblings = Array.isArray(parent?.children) ? parent.children : [];
+    if (!node || !node.parent_id || siblings.length <= 1) continue;
+    if (siblings[0] === nodeId) continue;
+    out.push(nodeId);
+    seen.add(nodeId);
+  }
+  return out;
+}
+
+async function promoteDisplayedVariationLine() {
+  if (!sessionId) return false;
+  if (!historyTree || !Array.isArray(historyTree.nodes)) return false;
+  const rows = buildHistoryRows();
+  const nodesById = new Map(historyTree.nodes.map((n) => [n.node_id, n]));
+  const promoteIds = collectPromotableVariationNodeIds(rows, nodesById);
+  if (promoteIds.length <= 0) return false;
+  for (const nodeId of promoteIds) {
+    const env = await currentEngine().historyPromoteBranch(sessionId, revision, nodeId);
+    applyStateEnvelope(env);
+  }
+  selected = null;
+  await refreshLegal();
+  await refreshHistory();
+  renderAll();
+  logLine(`変化を本譜に(手順全体)：${promoteIds.length}箇所`);
+  return true;
+}
+
 function deleteReverseBranchNode(nodeId) {
   if (!reverseHistoryTree || !Array.isArray(reverseHistoryTree.nodes)) {
     return { changed: false, currentChanged: false };
@@ -17948,15 +19597,20 @@ function deleteReverseBranchNode(nodeId) {
 async function promoteBranch() {
   if (!sessionId) return;
   stopHistoryPlayback({ silent: true });
-  const nodeId = resolveHistoryTargetNodeId();
-  if (!nodeId) return;
   if (isReverseSubModeActive()) {
+    const nodeId = resolveHistoryTargetNodeId();
+    if (!nodeId) return;
     const changed = promoteReverseBranchNode(nodeId);
     if (!changed) return;
     renderAll();
     logLine(`変化を本譜に：${nodeId}`);
     return;
   }
+  if (await promoteDisplayedVariationLine()) {
+    return;
+  }
+  const nodeId = resolveHistoryTargetNodeId();
+  if (!nodeId) return;
   const env = await currentEngine().historyPromoteBranch(sessionId, revision, nodeId);
   applyStateEnvelope(env);
   selected = null;
@@ -17970,22 +19624,34 @@ async function confirmDeleteBranchByDialog(nodeId) {
   if (
     !ui.branchDeleteDialog ||
     !ui.btnBranchDeleteCancel ||
+    !ui.btnBranchDeleteAll ||
     !ui.btnBranchDeleteOk ||
     !ui.branchDeleteTarget
   ) {
-    return window.confirm(`この手順を削除しますか？\n${nodeId}`);
+    return window.confirm(`この手順を削除しますか？\n${nodeId}`) ? "single" : "cancel";
   }
 
-  ui.branchDeleteTarget.textContent = `この手順を削除しますか？ (${nodeId})`;
+  const isReverse = isReverseSubModeActive();
+  const tree = isReverse ? reverseHistoryTree : historyTree;
+  const variationRoots = isReverse ? collectTreeVariationRootIds(tree) : collectForwardDeletableBranchRootIds(tree);
+  const canDeleteAll = variationRoots.length > 0;
+  const allCount = variationRoots.length;
+  ui.branchDeleteTarget.textContent = `削除方法を選択してください (${nodeId})`;
+  ui.btnBranchDeleteOk.textContent = "この手順を削除";
+  ui.btnBranchDeleteAll.textContent = `本譜以外を全削除${canDeleteAll ? ` (${allCount}本)` : ""}`;
+  ui.btnBranchDeleteAll.style.display = canDeleteAll ? "" : "none";
+  ui.btnBranchDeleteAll.disabled = !canDeleteAll;
   return await new Promise((resolve) => {
-    const onOk = () => cleanup(true);
-    const onCancelBtn = () => cleanup(false);
+    const onOk = () => cleanup("single");
+    const onAll = () => cleanup("all");
+    const onCancelBtn = () => cleanup("cancel");
     const onCancel = (e) => {
       e.preventDefault();
-      cleanup(false);
+      cleanup("cancel");
     };
     const cleanup = (result) => {
       ui.btnBranchDeleteOk.removeEventListener("click", onOk);
+      ui.btnBranchDeleteAll.removeEventListener("click", onAll);
       ui.btnBranchDeleteCancel.removeEventListener("click", onCancelBtn);
       ui.branchDeleteDialog.removeEventListener("cancel", onCancel);
       if (ui.branchDeleteDialog.open) ui.branchDeleteDialog.close();
@@ -17993,10 +19659,84 @@ async function confirmDeleteBranchByDialog(nodeId) {
     };
 
     ui.btnBranchDeleteOk.addEventListener("click", onOk);
+    ui.btnBranchDeleteAll.addEventListener("click", onAll);
     ui.btnBranchDeleteCancel.addEventListener("click", onCancelBtn);
     ui.branchDeleteDialog.addEventListener("cancel", onCancel);
     ui.branchDeleteDialog.showModal();
   });
+}
+
+async function deleteAllForwardBranches() {
+  if (!sessionId || !historyTree || !Array.isArray(historyTree.nodes)) return { changed: false, count: 0 };
+  let deletedRoots = 0;
+  let pass = 0;
+  const maxPass = 1024;
+  while (true) {
+    pass += 1;
+    if (pass > maxPass) break;
+    const roots = collectForwardDeletableBranchRootIds(historyTree);
+    if (roots.length <= 0) break;
+    let deletedThisPass = 0;
+    for (const nodeId of roots) {
+      const nodeMap = new Map((historyTree?.nodes || []).map((n) => [String(n?.node_id || ""), n]));
+      const target = nodeMap.get(String(nodeId || ""));
+      if (!target || !target.parent_id) continue;
+      try {
+        const env = await currentEngine().historyDeleteBranch(sessionId, revision, nodeId);
+        applyStateEnvelope(env);
+        deletedRoots += 1;
+        deletedThisPass += 1;
+      } catch (e) {
+        const msg = String(e?.message || e || "");
+        if (!msg.includes("delete target must have a parent")) throw e;
+      }
+    }
+    if (deletedThisPass <= 0) break;
+  }
+  selected = null;
+  selectedHistoryNodeId = null;
+  await refreshLegal();
+  await refreshHistory();
+  renderAll();
+  return { changed: deletedRoots > 0, count: deletedRoots };
+}
+
+function deleteAllReverseBranches() {
+  if (!reverseHistoryTree || !Array.isArray(reverseHistoryTree.nodes)) {
+    return { changed: false, count: 0, currentChanged: false };
+  }
+  const roots = collectTreeVariationRootIds(reverseHistoryTree);
+  if (roots.length <= 0) {
+    return { changed: false, count: 0, currentChanged: false };
+  }
+  const byId = reverseHistoryNodeMap();
+  const deleteIds = new Set();
+  const stack = [...roots];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (!id || deleteIds.has(id)) continue;
+    deleteIds.add(id);
+    const n = byId.get(id);
+    const children = Array.isArray(n?.children) ? n.children : [];
+    for (const c of children) stack.push(c);
+  }
+
+  reverseHistoryTree.nodes = reverseHistoryTree.nodes.filter((n) => !deleteIds.has(String(n?.node_id || "")));
+  for (const n of reverseHistoryTree.nodes) {
+    if (!Array.isArray(n?.children)) continue;
+    n.children = n.children.filter((id) => !deleteIds.has(String(id || "")));
+  }
+
+  const currentId = String(reverseHistoryTree.current_id || reverseHistoryTree.root_id || "");
+  const currentChanged = deleteIds.has(currentId);
+  if (currentChanged) {
+    const mainlineIds = collectTreeMainlineIds(reverseHistoryTree);
+    reverseHistoryTree.current_id = mainlineIds[mainlineIds.length - 1] || reverseHistoryTree.root_id;
+  }
+  if (reverseSelectedNodeId && deleteIds.has(String(reverseSelectedNodeId))) {
+    reverseSelectedNodeId = String(reverseHistoryTree.current_id || reverseHistoryTree.root_id || "");
+  }
+  return { changed: true, count: roots.length, currentChanged };
 }
 
 async function deleteBranch() {
@@ -18004,39 +19744,100 @@ async function deleteBranch() {
   stopHistoryPlayback({ silent: true });
   const nodeId = resolveHistoryTargetNodeId();
   if (!nodeId) return;
-  const ok = await confirmDeleteBranchByDialog(nodeId);
-  if (!ok) return;
-  if (isReverseSubModeActive()) {
-    const result = deleteReverseBranchNode(nodeId);
-    if (!result.changed) return;
-    if (result.currentChanged) {
-      const targetId = String(reverseHistoryTree?.current_id || reverseHistoryTree?.root_id || "");
-      if (targetId) {
-        await jumpToReverseHistoryNode(targetId, {
-          includeLegal: true,
-          includeHistory: false,
-          refreshLegalIfMissing: true,
-          refreshHistoryIfMissing: false,
-          forceReload: true,
-          silentLog: true,
-        });
+  const action = await confirmDeleteBranchByDialog(nodeId);
+  if (action === "cancel") return;
+  let didDelete = false;
+  try {
+    if (action === "all") {
+      if (isReverseSubModeActive()) {
+        const result = deleteAllReverseBranches();
+        if (!result.changed) return;
+        didDelete = true;
+        if (result.currentChanged) {
+          const targetId = String(reverseHistoryTree?.current_id || reverseHistoryTree?.root_id || "");
+          if (targetId) {
+            await jumpToReverseHistoryNode(targetId, {
+              includeLegal: true,
+              includeHistory: false,
+              refreshLegalIfMissing: true,
+              refreshHistoryIfMissing: false,
+              forceReload: true,
+              silentLog: true,
+            });
+          } else {
+            renderAll();
+          }
+        } else {
+          renderAll();
+        }
+        logLine(`本譜以外を全削除：${result.count}本`);
+        return;
+      }
+      const result = await deleteAllForwardBranches();
+      if (!result.changed) return;
+      didDelete = true;
+      logLine(`本譜以外を全削除：${result.count}本`);
+      return;
+    }
+    if (isReverseSubModeActive()) {
+      const result = deleteReverseBranchNode(nodeId);
+      if (!result.changed) return;
+      didDelete = true;
+      if (result.currentChanged) {
+        const targetId = String(reverseHistoryTree?.current_id || reverseHistoryTree?.root_id || "");
+        if (targetId) {
+          await jumpToReverseHistoryNode(targetId, {
+            includeLegal: true,
+            includeHistory: false,
+            refreshLegalIfMissing: true,
+            refreshHistoryIfMissing: false,
+            forceReload: true,
+            silentLog: true,
+          });
+        } else {
+          renderAll();
+        }
       } else {
         renderAll();
       }
-    } else {
+      logLine(`手順削除：${nodeId}`);
+      return;
+    }
+    const nodeMap = new Map((historyTree?.nodes || []).map((n) => [String(n?.node_id || ""), n]));
+    const target = nodeMap.get(String(nodeId || ""));
+    if (!target || !target.parent_id) {
+      logLine("開始局面は削除できません。", true);
+      return;
+    }
+    try {
+      const env = await currentEngine().historyDeleteBranch(sessionId, revision, nodeId);
+      applyStateEnvelope(env);
+    } catch (e) {
+      const msg = String(e?.message || e || "");
+      if (msg.includes("delete target must have a parent")) {
+        logLine("開始局面は削除できません。", true);
+        return;
+      }
+      throw e;
+    }
+    selected = null;
+    selectedHistoryNodeId = null;
+    await refreshLegal();
+    await refreshHistory();
+    renderAll();
+    didDelete = true;
+    logLine(`手順削除：${nodeId}`);
+  } finally {
+    if (didDelete) {
+      // 削除直後は棋譜エリアを必ず再取得・再描画して表示を同期する。
+      try {
+        await refreshHistory();
+      } catch (_e) {
+        // no-op (best effort)
+      }
       renderAll();
     }
-    logLine(`手順削除：${nodeId}`);
-    return;
   }
-  const env = await currentEngine().historyDeleteBranch(sessionId, revision, nodeId);
-  applyStateEnvelope(env);
-  selected = null;
-  selectedHistoryNodeId = null;
-  await refreshLegal();
-  await refreshHistory();
-  renderAll();
-  logLine(`手順削除：${nodeId}`);
 }
 
 async function historyActionOnReverseTree(kind, options = {}) {
@@ -18108,6 +19909,7 @@ async function historyAction(kind, options = {}) {
   const skipLegalCompute = Boolean(options.skipLegalCompute);
   const playbackFrame = Boolean(options.playbackFrame);
   const fastState = Boolean(options.fastState);
+  const alignHistorySelectionToCurrent = Boolean(options.alignHistorySelectionToCurrent);
   const query = new URLSearchParams({
     include_legal: includeLegal ? "true" : "false",
     include_history: includeHistory ? "true" : "false",
@@ -18154,6 +19956,9 @@ async function historyAction(kind, options = {}) {
     options.syncLocalHistoryCurrent !== false
   ) {
     localAdvanceHistoryCurrentIdInUi(kind);
+  }
+  if (!isReverseSubModeActive() && alignHistorySelectionToCurrent && historyTree) {
+    selectedHistoryNodeId = historyTree.current_id || historyTree.root_id || null;
   }
   const refreshTasks = [];
   if (!views.hasLegal) {
@@ -20179,6 +21984,25 @@ function renderPieceBox() {
     ui.pieceBoxList.appendChild(ui.pieceBoxFairyTabs);
   }
 
+  if (fairyNames.length > 0) {
+    const selectedFairyName =
+      editSelection?.source === "box" && fairyNames.includes(String(editSelection?.name || ""))
+        ? String(editSelection.name || "")
+        : "";
+    const viewerActions = document.createElement("div");
+    viewerActions.className = "piecebox-custom-actions";
+    const viewerBtn = document.createElement("button");
+    viewerBtn.type = "button";
+    viewerBtn.className = "piecebox-custom-btn";
+    viewerBtn.textContent = "選択駒の動き確認";
+    viewerBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openFairyMoveViewerDialog(selectedFairyName || fairyNames[0] || "");
+    });
+    viewerActions.appendChild(viewerBtn);
+    ui.pieceBoxList.appendChild(viewerActions);
+  }
+
   if (pieceBoxFairyTab === "custom") {
     appendSectionLabel("追加駒");
     const customActions = document.createElement("div");
@@ -20563,6 +22387,56 @@ function getCurrentHistoryTerminalResult() {
   return localIsTerminalResultText(text) ? text : "";
 }
 
+function computeBoardHoverMoveDestKeys(x, y) {
+  if (!Number.isInteger(x) || !Number.isInteger(y) || !localInBoard(x, y)) return null;
+  const piece = findPieceAt(x, y);
+  if (!piece) return null;
+  const pieceList = Array.isArray(state?.board?.pieces) ? state.board.pieces : [];
+  const rules = state?.rules && typeof state.rules === "object" ? state.rules : {};
+  const neutralTurnOwner = Number(state?.turn) === 1 ? 1 : 0;
+  let targets = [];
+  try {
+    targets = localGenerateTargetsForPiece(pieceList, piece, rules, { mode: "move", neutralTurnOwner }) || [];
+  } catch (_err) {
+    targets = [];
+  }
+  const out = new Set();
+  for (const t of targets) {
+    if (!t || typeof t !== "object") continue;
+    const tx = Number(t.x);
+    const ty = Number(t.y);
+    if (!localInBoard(tx, ty)) continue;
+    out.add(coordKey(tx, ty));
+  }
+  return out;
+}
+
+function refreshBoardHoverMoveHighlightClasses() {
+  if (!Array.isArray(boardGridCells)) return;
+  const activeSet = boardHoverMoveDestKeys instanceof Set && boardHoverMoveDestKeys.size > 0 ? boardHoverMoveDestKeys : null;
+  for (const cell of boardGridCells) {
+    cell?.btn?.classList?.toggle("hover-move", Boolean(activeSet && activeSet.has(cell.key)));
+  }
+}
+
+function clearBoardHoverMoveHighlight() {
+  boardHoverMoveSource = null;
+  boardHoverMoveDestKeys = null;
+  refreshBoardHoverMoveHighlightClasses();
+}
+
+function setBoardHoverMoveHighlight(x, y) {
+  if (boardHoverMoveSource && boardHoverMoveSource.x === x && boardHoverMoveSource.y === y) return;
+  const dest = computeBoardHoverMoveDestKeys(x, y);
+  if (!(dest instanceof Set)) {
+    clearBoardHoverMoveHighlight();
+    return;
+  }
+  boardHoverMoveSource = { x, y };
+  boardHoverMoveDestKeys = dest;
+  refreshBoardHoverMoveHighlightClasses();
+}
+
 function ensureBoardGridScaffold() {
   if (!ui.boardGrid) return false;
   const reusable =
@@ -20577,6 +22451,8 @@ function ensureBoardGridScaffold() {
   ui.boardGrid.innerHTML = "";
   boardGridCells = [];
   boardGridOwnerEl = ui.boardGrid;
+  boardHoverMoveSource = null;
+  boardHoverMoveDestKeys = null;
 
   for (let x = 0; x < 9; x += 1) {
     const file = document.createElement("div");
@@ -20616,6 +22492,12 @@ function ensureBoardGridScaffold() {
         if (state?.mode === "edit" && e.detail > 1) return;
         void onCellClick(x, y);
       });
+      btn.addEventListener("mouseenter", () => {
+        setBoardHoverMoveHighlight(x, y);
+      });
+      btn.addEventListener("mouseleave", () => {
+        clearBoardHoverMoveHighlight();
+      });
       btn.addEventListener("contextmenu", (e) => {
         if (state?.mode !== "edit") return;
         if (clearEditSelectionByRightClick()) {
@@ -20646,8 +22528,19 @@ function renderBoard() {
   if (!ui.boardGrid) return;
   if (!ensureBoardGridScaffold()) return;
 
+  if (boardHoverMoveSource) {
+    const recomputed = computeBoardHoverMoveDestKeys(boardHoverMoveSource.x, boardHoverMoveSource.y);
+    if (recomputed instanceof Set) {
+      boardHoverMoveDestKeys = recomputed;
+    } else {
+      boardHoverMoveSource = null;
+      boardHoverMoveDestKeys = null;
+    }
+  }
+
   const pieces = pieceMapFromState();
   const legalDest = selectedLegalDestSet();
+  const hoverMoveDest = boardHoverMoveDestKeys instanceof Set && boardHoverMoveDestKeys.size > 0 ? boardHoverMoveDestKeys : null;
   const lastMoveSquares = state?.mode === "play" ? getCurrentLastMoveSquares() : null;
   const showEffectiveBadge = isUiSettingEnabled("show_effective_move_badge", false);
   const effectiveMoveNames = new Map();
@@ -20686,6 +22579,7 @@ function renderBoard() {
     const takeMakeStepSelected = Boolean(pending && pending.stepX === x && pending.stepY === y);
     btn.classList.toggle("selected", Boolean(isSelectedBoard(x, y) || editBoardSelected || takeMakeStepSelected));
     btn.classList.toggle("legal", legalDest.has(key));
+    btn.classList.toggle("hover-move", Boolean(hoverMoveDest && hoverMoveDest.has(key)));
 
     const oldBadge = btn.querySelector(".piece-origin-badge");
     if (oldBadge) oldBadge.remove();
@@ -20829,6 +22723,7 @@ function renderHistoryList() {
 }
 
 function syncHistoryScrollToCurrent(rows = null) {
+  if (suppressHistoryAutoScroll) return;
   if (!ui.historyList) return;
   const list = ui.historyList;
   const applyScroll = () => {
@@ -20838,8 +22733,12 @@ function syncHistoryScrollToCurrent(rows = null) {
     if (rowEls.length === 0) return false;
 
     const srcRows = Array.isArray(rows) && rows.length === rowEls.length ? rows : null;
+    const currentNodeId = String(historyTree?.current_id || historyTree?.root_id || "");
     let currentIndex = -1;
-    if (srcRows) {
+    if (currentNodeId) {
+      currentIndex = rowEls.findIndex((el) => String(el?.dataset?.nodeId || "") === currentNodeId);
+    }
+    if (currentIndex < 0 && srcRows) {
       currentIndex = srcRows.findIndex((r) => r && r.isCurrent);
     }
     if (currentIndex < 0) {
@@ -20847,13 +22746,16 @@ function syncHistoryScrollToCurrent(rows = null) {
     }
     if (currentIndex < 0) return false;
 
-    // 現在手 n に対して、先頭を n-9 に固定する（例: 60手目 -> 51手目）
-    const targetTopIndex = Math.max(0, currentIndex - 9);
-    const topEl = rowEls[targetTopIndex];
-    if (!topEl) return false;
-    const listRect = list.getBoundingClientRect();
-    const rowRect = topEl.getBoundingClientRect();
-    let targetTop = list.scrollTop + (rowRect.top - listRect.top);
+    const curEl = rowEls[currentIndex];
+    if (!curEl) return false;
+    const rowTop = rowTopInScrollContainer(list, curEl);
+    const rowBottom = rowTop + Number(curEl.getBoundingClientRect().height || 0);
+    const viewTop = Number(list.scrollTop || 0);
+    const viewBottom = viewTop + Number(list.clientHeight || 0);
+    const margin = 8;
+    if (rowTop >= viewTop + margin && rowBottom <= viewBottom - margin) return true;
+
+    let targetTop = rowTop - Math.floor((Number(list.clientHeight || 0) * 0.35));
     targetTop = Math.max(0, Math.min(Math.max(0, list.scrollHeight - list.clientHeight), targetTop));
     if (Math.abs(list.scrollTop - targetTop) > 1) list.scrollTop = targetTop;
     return true;
@@ -20865,6 +22767,43 @@ function syncHistoryScrollToCurrent(rows = null) {
     requestAnimationFrame(() => attempt(remaining - 1));
   };
   attempt(4);
+}
+
+function ensureCurrentHistoryRowVisible() {
+  if (!ui.historyList) return;
+  const list = ui.historyList;
+  const currentNodeId = String(historyTree?.current_id || historyTree?.root_id || "");
+  const currentEl = currentNodeId
+    ? Array.from(list.querySelectorAll(".history-row")).find(
+        (el) => String(el?.dataset?.nodeId || "") === currentNodeId
+      ) || list.querySelector(".history-row.current")
+    : list.querySelector(".history-row.current");
+  if (!currentEl) return;
+  const rowEls = Array.from(list.querySelectorAll(".history-row"));
+  const currentIndex = rowEls.indexOf(currentEl);
+  if (currentIndex >= 0) {
+    const targetTopIndex = Math.max(0, currentIndex - 9); // 現在手が概ね10行目に来るようにする
+    const topEl = rowEls[targetTopIndex];
+    if (topEl) {
+      const topInList = rowTopInScrollContainer(list, topEl);
+      const targetTop = Math.max(
+        0,
+        Math.min(
+          Math.max(0, list.scrollHeight - list.clientHeight),
+          topInList
+        )
+      );
+      if (Math.abs(Number(list.scrollTop || 0) - targetTop) > 1) {
+        list.scrollTop = targetTop;
+      }
+      return;
+    }
+  }
+  try {
+    currentEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+  } catch (_e) {
+    // no-op
+  }
 }
 
 function localNotationSegmentPieceOwner(segment, moveOwner = null, fallbackOwner = null) {
@@ -23433,6 +25372,7 @@ async function boot() {
   rebuildCustomPieceRuntimeMaps();
   window.addEventListener("resize", () => {
     scheduleHistoryHeaderScrollbarCompensation();
+    syncVectorBoardCellSizes();
   });
   try {
     await fetchMeta();
@@ -23595,6 +25535,18 @@ async function boot() {
       closeCustomFairyDialog();
     });
   }
+  if (ui.customFairyVectorBoardDialog) {
+    ui.customFairyVectorBoardDialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeCustomFairyVectorBoardDialog();
+    });
+  }
+  if (ui.fairyMoveViewerDialog) {
+    ui.fairyMoveViewerDialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeFairyMoveViewerDialog();
+    });
+  }
   if (ui.repeatDialog) {
     ui.repeatDialog.addEventListener("cancel", (e) => {
       e.preventDefault();
@@ -23621,9 +25573,51 @@ async function boot() {
       closeCustomFairyDialog();
     });
   }
+  if (ui.btnCustomFairyVectorBoardOpen) {
+    ui.btnCustomFairyVectorBoardOpen.addEventListener("click", () => {
+      openCustomFairyVectorBoardDialog();
+    });
+  }
+  if (ui.btnCustomFairyVectorBoardClose) {
+    ui.btnCustomFairyVectorBoardClose.addEventListener("click", () => {
+      closeCustomFairyVectorBoardDialog();
+    });
+  }
+  if (ui.btnFairyMoveViewerClose) {
+    ui.btnFairyMoveViewerClose.addEventListener("click", () => {
+      closeFairyMoveViewerDialog();
+    });
+  }
+  if (ui.fairyMoveViewerSelect) {
+    ui.fairyMoveViewerSelect.addEventListener("change", () => {
+      if (ui.fairyMoveViewerScenario) ui.fairyMoveViewerScenario.value = "";
+      renderFairyMoveViewerBoard();
+    });
+  }
+  if (ui.fairyMoveViewerScenario) {
+    ui.fairyMoveViewerScenario.addEventListener("change", () => {
+      renderFairyMoveViewerBoard();
+    });
+  }
+  if (ui.btnCustomFairyVectorBoardClear) {
+    ui.btnCustomFairyVectorBoardClear.addEventListener("click", () => {
+      setCustomVectorPresetActive("");
+      setCustomFairyVectorsFromArray([]);
+    });
+  }
   if (ui.customFairyMoveModeSelect) {
     ui.customFairyMoveModeSelect.addEventListener("change", () => {
       syncCustomFairyDialogMoveMode();
+    });
+  }
+  if (ui.customFairyNameInput) {
+    ui.customFairyNameInput.addEventListener("input", () => {
+      updateCustomFairyVectorBoardCenter();
+    });
+  }
+  if (ui.customFairyDisplayInput) {
+    ui.customFairyDisplayInput.addEventListener("input", () => {
+      updateCustomFairyVectorBoardCenter();
     });
   }
   if (ui.customFairyVectorsInput) {
@@ -23647,7 +25641,7 @@ async function boot() {
       const dx = Number.parseInt(ui.customFairyDxInput?.value ?? "", 10);
       const dy = Number.parseInt(ui.customFairyDyInput?.value ?? "", 10);
       if (!appendCustomFairyVector(dx, dy)) {
-        logLine("dx/dy は -8〜8 の整数で入力してください。", true);
+        logLine("dx/dy は -9〜9 の整数で入力してください。", true);
       } else {
         setCustomVectorPresetActive("");
       }
@@ -23666,6 +25660,13 @@ async function boot() {
       const preset = btn.getAttribute("data-custom-vector-preset");
       if (preset && preset !== "clear") setCustomVectorPresetActive(preset);
       applyCustomVectorPreset(preset);
+    });
+  }
+  if (ui.customFairyVectorBoard) {
+    ui.customFairyVectorBoard.addEventListener("click", (e) => {
+      const cell = e.target?.closest?.(".misc-fairy-vector-board-cell");
+      if (!cell || cell.dataset.center === "1") return;
+      toggleCustomFairyVectorBoardCell(cell.dataset.dx, cell.dataset.dy);
     });
   }
   if (ui.btnCustomFairyAdd) {
@@ -24087,7 +26088,18 @@ async function boot() {
     if (!el) return;
     el.addEventListener("click", () => {
       stopHistoryPlayback({ silent: true });
-      void enqueueSequentialAction(() => historyAction(kind)).catch((e) => {
+      const action = async () => {
+        suppressHistoryAutoScroll = true;
+        try {
+          const changed = await historyAction(kind);
+          ensureCurrentHistoryRowVisible();
+          return changed;
+        } finally {
+          suppressHistoryAutoScroll = false;
+        }
+      };
+      void enqueueSequentialAction(action)
+        .catch((e) => {
         logLine(e.message || String(e), true);
       });
     });

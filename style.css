@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --canvas-bg: #ffffff;
   --board: #f0d090;
   --line: #000000;
@@ -648,6 +648,17 @@ button:disabled {
   background: color-mix(in srgb, var(--select) 25%, var(--board));
 }
 
+.cell.hover-move::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  background: color-mix(in srgb, var(--select) 32%, var(--board));
+  outline: 1px solid color-mix(in srgb, var(--select) 58%, var(--board));
+  outline-offset: -1px;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .cell.legal::after {
   content: "";
   position: absolute;
@@ -1065,6 +1076,297 @@ body[data-mode="edit"] #logPanel {
   background: #ffe58f;
   border-color: #b38f00;
   font-weight: bold;
+}
+
+.misc-fairy-vector-board-wrap {
+  display: grid;
+  gap: 3px;
+}
+
+.misc-fairy-vector-dialog {
+  min-width: 470px;
+}
+
+#customFairyVectorBoardDialog {
+  width: min(98vw, 640px);
+}
+
+#fairyMoveViewerDialog {
+  width: min(98vw, 640px);
+}
+
+#customFairyVectorBoardDialog .misc-fairy-vector-dialog {
+  min-width: 0;
+  width: 100%;
+}
+
+#fairyMoveViewerDialog .misc-fairy-vector-dialog {
+  min-width: 0;
+  width: 100%;
+}
+
+#customFairyVectorBoardDialog .misc-fairy-vector-board-wrap {
+  justify-items: center;
+}
+
+.misc-fairy-vector-board-caption {
+  font-size: 11px;
+  color: #555;
+}
+
+#fairyMoveViewerCaption {
+  margin: 4px 0 6px;
+}
+
+.misc-fairy-vector-board {
+  --vector-cell-size: 22px;
+  display: grid;
+  grid-template-columns: repeat(19, var(--vector-cell-size));
+  grid-template-rows: repeat(19, var(--vector-cell-size));
+  gap: 1px;
+  position: relative;
+  width: max-content;
+  padding: 1px;
+  border: 0;
+  background: var(--line);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+#customFairyVectorBoardDialog .misc-fairy-vector-board {
+  --vector-cell-size: min(24px, calc((96vw - 72px - 20px) / 19), calc((86vh - 210px - 20px) / 19));
+}
+
+#fairyMoveViewerDialog .misc-fairy-vector-board {
+  --vector-cell-size: min(24px, calc((96vw - 72px - 20px) / 19), calc((86vh - 260px - 20px) / 19));
+  margin: 4px auto 0;
+}
+
+#fairyMoveViewerBoard .misc-fairy-vector-board-cell {
+  cursor: default;
+}
+
+#fairyMoveViewerBoard .misc-fairy-vector-board-cell:hover {
+  background: var(--board);
+}
+
+.misc-fairy-vector-board-cell {
+  appearance: none;
+  -webkit-appearance: none;
+  width: var(--vector-cell-size);
+  height: var(--vector-cell-size);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  position: relative;
+  box-sizing: border-box;
+  box-shadow: none;
+  outline: none;
+  background: var(--board);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font: inherit;
+  font-size: 0;
+  line-height: 1;
+}
+
+.misc-fairy-vector-board-cell:hover {
+  background: var(--board);
+}
+
+.misc-fairy-vector-board-cell:disabled {
+  opacity: 1;
+  filter: none;
+  background: var(--board);
+  color: inherit;
+}
+
+.misc-fairy-vector-board-cell.reachable {
+  background: #d9e8ff;
+}
+
+.misc-fairy-vector-board[data-mode="hopper"] .misc-fairy-vector-board-cell.reachable {
+  background: #d8f1ff;
+}
+
+.misc-fairy-vector-board-cell.capture {
+  background: #ff9a9a;
+}
+
+.misc-fairy-vector-board-cell.sample-enemy {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(177, 58, 58, 0.9) 0 3px,
+    transparent 3px 7px
+  );
+  background-size: 100% 100%;
+}
+
+.misc-fairy-vector-board-cell.sample-hurdle {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(221, 146, 0, 0.95) 0 3px,
+    transparent 3px 7px
+  );
+  background-size: 100% 100%;
+}
+.misc-fairy-vector-board-cell.sample-friendly {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(38, 161, 134, 0.95) 0 3px,
+    transparent 3px 7px
+  );
+  background-size: 100% 100%;
+}
+
+.misc-fairy-vector-board-cell.sample-enemy.sample-hurdle {
+  background-image:
+    repeating-linear-gradient(-45deg, rgba(221, 146, 0, 0.95) 0 3px, transparent 3px 7px),
+    repeating-linear-gradient(45deg, rgba(177, 58, 58, 0.9) 0 3px, transparent 3px 7px);
+  background-size: 100% 100%;
+}
+
+.misc-fairy-vector-board-cell.sample-friendly.sample-hurdle {
+  background-image:
+    repeating-linear-gradient(-45deg, rgba(221, 146, 0, 0.95) 0 3px, transparent 3px 7px),
+    repeating-linear-gradient(45deg, rgba(38, 161, 134, 0.95) 0 3px, transparent 3px 7px);
+  background-size: 100% 100%;
+}
+
+.misc-fairy-vector-board-cell.sample-friendly.sample-enemy {
+  background-image:
+    repeating-linear-gradient(-45deg, rgba(177, 58, 58, 0.9) 0 3px, transparent 3px 7px),
+    repeating-linear-gradient(45deg, rgba(38, 161, 134, 0.95) 0 3px, transparent 3px 7px);
+  background-size: 100% 100%;
+}
+
+.misc-fairy-vector-board-cell.selected {
+  background: #4d8ef7;
+}
+
+.misc-fairy-vector-board-cell.direction {
+  background: #d9e8ff;
+  color: #6f90b8;
+  font-size: clamp(10px, calc(var(--vector-cell-size) * 0.56), 14px);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.misc-fairy-vector-board[data-mode="hopper"] .misc-fairy-vector-board-cell.direction {
+  background: #d8f1ff;
+}
+
+.misc-fairy-vector-board-cell.direction-unreachable {
+  background: var(--board);
+}
+
+.misc-fairy-vector-board[data-mode="hopper"] .misc-fairy-vector-board-cell.direction.direction-unreachable {
+  background: var(--board);
+}
+
+.misc-fairy-vector-board-cell.center {
+  background: var(--board);
+  color: #43311f;
+  font-size: clamp(12px, calc(var(--vector-cell-size) * 0.58), 16px);
+  font-weight: bold;
+  cursor: default;
+}
+
+.misc-fairy-viewer-guide {
+  margin: -4px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid #d4c6b3;
+  border-radius: 8px;
+  background: #fffaf2;
+  color: #463220;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.misc-fairy-viewer-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 0 0 2px;
+}
+
+.misc-fairy-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid #cdbca8;
+  border-radius: 999px;
+  background: #fffaf2;
+  color: #463220;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.misc-fairy-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(92, 71, 44, 0.35);
+  border-radius: 3px;
+  background: #d9c3a2;
+  box-sizing: border-box;
+}
+
+.misc-fairy-legend-swatch.reachable {
+  background: #d9e8ff;
+}
+
+.misc-fairy-legend-swatch.capture {
+  background: #ff9a9a;
+  border-color: #b61f1f;
+}
+
+.misc-fairy-legend-swatch.enemy {
+  background: #d9c3a2;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(177, 58, 58, 0.9) 0 3px,
+    transparent 3px 7px
+  );
+}
+
+.misc-fairy-legend-swatch.hurdle {
+  background: #d9c3a2;
+  border-color: #b87400;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(221, 146, 0, 0.95) 0 3px,
+    transparent 3px 7px
+  );
+}
+
+.misc-fairy-legend-swatch.friendly {
+  background: #d9c3a2;
+  border-color: #2f8e78;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(38, 161, 134, 0.95) 0 3px,
+    transparent 3px 7px
+  );
+}
+
+.misc-fairy-legend-swatch.direction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6f90b8;
+  background: #efe2cf;
+  border-color: #9c8766;
 }
 
 .misc-fairy-vector-preview {
@@ -1717,6 +2019,11 @@ body.history-divider-dragging .history-divider::before {
   margin-top: 8px;
 }
 
+.attr-actions > :only-child {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+
 .play-submode-dialog-actions {
   display: grid;
   grid-template-columns: 1fr;
@@ -1913,3 +2220,5 @@ body.history-divider-dragging .history-divider::before {
     padding: 4px;
   }
 }
+
+
