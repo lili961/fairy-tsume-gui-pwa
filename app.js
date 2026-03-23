@@ -216,7 +216,7 @@ const REVERSE_IO_HEADER = "F-TSUME-REVERSE-V1";
 const REVERSE_IO_KIND = "f-tsume-reverse-kifu-v1";
 const REVERSE_IO_EMBED_PREFIX = "F-TSUME-REVERSE-EMBED:";
 const REVERSE_PLAIN_MARKER_LINE = "逆算棋譜";
-const REVERSE_WORKER_SCRIPT = "./reverse_worker.js?v=20260319h";
+const REVERSE_WORKER_SCRIPT = "./reverse_worker.js?v=20260322a";
 const REVERSE_WORKER_TIMEOUT_MS = 5000;
 const REVERSE_PROFILE_LOG_ENABLED = true;
 const REVERSE_PRE_LEGAL_CACHE_VERSION = "20260314j";
@@ -529,11 +529,12 @@ const LOCAL_DEFAULT_RULES = Object.freeze({
   problem_ply: 0,
 });
 const PROMOTED_SET = new Set(["と", "成香", "成桂", "成銀", "馬", "龍"]);
-const PIECEBOX_FAIRY_TAB_IDS = ["leaper", "rider", "hopper", "other", "custom"];
+const PIECEBOX_FAIRY_TAB_IDS = ["leaper", "rider", "hopper", "chushogi", "other", "custom"];
 const PIECEBOX_FAIRY_TAB_LABELS = {
   leaper: "Leaper系",
   rider: "Rider系",
   hopper: "Hopper系",
+  chushogi: "中将棋駒",
   other: "その他",
   custom: "追加駒",
 };
@@ -557,6 +558,7 @@ const PIECEBOX_FAIRY_HOPPER_NAMES = new Set([
   "Moose",
   "Sparrow",
 ]);
+const PIECEBOX_FAIRY_CHUSHOGI_NAMES = new Set(["獅子", "石", "穴", "塔", "横行"]);
 const RULE_PROFILE_KEYS = new Set(["strategy", "objective", "problem_ply"]);
 const RULE_INTERNAL_HIDDEN_KEYS = new Set(["detect_sennichite"]);
 const RULE_TAB_IDS = ["performance", "selection", "capture_owner", "other"];
@@ -3629,6 +3631,7 @@ function localBuildMetaFallback() {
     Imitator: "■",
     "Teleport-Imitator": "□",
     Dabbaba: "戦",
+    横行: "横",
     石: "石",
     穴: "穴",
     塔: "◆",
@@ -3652,6 +3655,7 @@ function localBuildMetaFallback() {
       Friend:
         "本来は利きを持たないが、味方駒の利きに入るとその性能を得る。複数から利かされると合成され、Friend 同士でも再帰的に転写される。",
       Dabbaba: "(2,0)-leaper。縦横2マス跳んだ位置に利く駒。",
+      横行: "中将棋の横行。横に何マスでも動け、縦に1マス動ける。飛び越えては行けない。",
       石: "不透過・不可侵の領域を表す。跳び越すことは可能。",
       穴: "着手不可の箇所を表す。走り駒は通過できる。",
       塔: "不透過・不可侵の領域を表す。跳び越すことは可能。ホッパー系の駒のジャンプ台になる。",
@@ -7117,6 +7121,7 @@ const LOCAL_SFEN_NAME_TO_CODE = Object.freeze({
   Equihopper: "E",
   Pao: "p",
   Wazir: "V",
+  横行: "j",
   獅子: "X",
   塔: "#",
 });
@@ -7152,6 +7157,8 @@ const LOCAL_FALLBACK_DISPLAY_TO_NAME = Object.freeze({
   圭: "成桂",
   杏: "成香",
   戦: "Dabbaba",
+  横: "横行",
+  横行: "横行",
   響: "Friend",
   Friend: "Friend",
   "◆": "塔",
@@ -7481,6 +7488,13 @@ const LOCAL_PIECE_SPECS = Object.freeze({
   Eagle: { type: "eagle", vectors: LOCAL_VEC_KING },
   Moose: { type: "bent", vectors: LOCAL_VEC_KING, angle: 45 },
   Sparrow: { type: "none" },
+  横行: {
+    type: "mixed",
+    parts: [
+      { type: "slide", vectors: [[-1, 0], [1, 0]] },
+      { type: "step", vectors: [[0, -1], [0, 1]] },
+    ],
+  },
   獅子: { type: "area2", vectors: LOCAL_VEC_AREA2 },
   石: { type: "stone" },
   穴: { type: "none" },
@@ -18289,6 +18303,7 @@ function fairyTabForPieceName(name, trail = null) {
   if (PIECEBOX_FAIRY_LEAPER_NAMES.has(nm)) return "leaper";
   if (PIECEBOX_FAIRY_RIDER_NAMES.has(nm)) return "rider";
   if (PIECEBOX_FAIRY_HOPPER_NAMES.has(nm)) return "hopper";
+  if (PIECEBOX_FAIRY_CHUSHOGI_NAMES.has(nm)) return "chushogi";
   const customSpec = customPieceDirectSpecMap.get(nm);
   if (customSpec?.type === "step") return "leaper";
   if (customSpec?.type === "slide") return "rider";
@@ -19165,6 +19180,13 @@ function closeHistoryBranchDialog() {
   if (ui.historyBranchDialog?.open) ui.historyBranchDialog.close();
 }
 
+function formatHistoryPlyPrefix(plyRaw) {
+  const plyNum = Number.parseInt(plyRaw, 10);
+  const ply = Number.isFinite(plyNum) && plyNum >= 0 ? plyNum : 0;
+  const plyText = String(ply);
+  return `${plyText.length <= 3 ? plyText.padStart(3, "\u2007") : plyText}:`;
+}
+
 function historyBranchOptionText(option, { reverse = false, includePly = false } = {}) {
   const ply = Number(option?.ply || 0);
   let text = String(option?.moveStr || "-");
@@ -19175,7 +19197,7 @@ function historyBranchOptionText(option, { reverse = false, includePly = false }
     const owner = Number.isFinite(Number(option?.turn)) ? Number(option.turn) : null;
     text = formatReverseHistoryNotationForDisplay(text, owner);
   }
-  if (includePly) return `${ply}: ${text}`;
+  if (includePly) return `${formatHistoryPlyPrefix(ply)} ${text}`;
   return text;
 }
 
@@ -19305,7 +19327,7 @@ function renderReverseHistoryList() {
       const raw = String(row?.moveStr || row?.text || "-");
       const owner = Number.isFinite(Number(row?.turn)) ? Number(row.turn) : null;
       const text = formatReverseHistoryNotationForDisplay(raw, owner);
-      main.textContent = `${ply}: ${text}`;
+      main.textContent = `${formatHistoryPlyPrefix(ply)} ${text}`;
     }
     if (row?.nodeId && reverseHistoryTree && Array.isArray(reverseHistoryTree.nodes)) {
       main.addEventListener("click", () => {
@@ -22684,7 +22706,7 @@ function renderHistoryList() {
     } else {
       const owner = Number.isFinite(Number(row.turn)) ? 1 - Number(row.turn) : null;
       const moveText = formatOpponentControlNotationForDisplay(row.moveStr, owner);
-      main.textContent = `${row.ply}: ${moveText}`;
+      main.textContent = `${formatHistoryPlyPrefix(row.ply)} ${moveText}`;
     }
     main.addEventListener("click", () => {
       selectedHistoryNodeId = row.nodeId;
@@ -24223,9 +24245,11 @@ function reverseComputeOnePlyCandidates(options = {}) {
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_check_on_self);
   const reverseObjective = String(rules?.objective || "詰");
-  const requireDefenderCheckedBeforeDefenderMove = reverseObjective === "詰";
+  const reverseObjectiveRequiresCheckObligation =
+    reverseObjective === "詰" || reverseObjective === "自玉詰";
+  const requireDefenderCheckedBeforeDefenderMove = reverseObjectiveRequiresCheckObligation;
   const requireAttackerCheckingMove =
-    reverseObjective === "詰" &&
+    reverseObjectiveRequiresCheckObligation &&
     !relaxPredecessorCheckPolicy &&
     !Boolean(rules?.allow_sente_non_check);
   // 受先の初手逆算例外:

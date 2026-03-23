@@ -1,6 +1,6 @@
 "use strict";
 
-importScripts("./app.js?v=20260319h");
+importScripts("./app.js?v=20260322a");
 
 self.addEventListener("message", (ev) => {
   const data = ev?.data && typeof ev.data === "object" ? ev.data : null;
