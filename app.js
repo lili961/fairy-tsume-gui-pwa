@@ -1,5 +1,6 @@
 ﻿const FILE_LABELS = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
 const RANK_LABELS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const APP_VERSION = "v1.0.0";
 const IS_WORKER_CONTEXT =
   typeof WorkerGlobalScope !== "undefined" &&
   typeof self !== "undefined" &&
@@ -26,6 +27,7 @@ const ui = {
   btnPlayModeReverse: getEl("btnPlayModeReverse"),
   sessionInfo: getEl("sessionInfo"),
   revisionInfo: getEl("revisionInfo"),
+  versionInfo: getEl("versionInfo"),
   modeInfo: getEl("modeInfo"),
   turnInfo: getEl("turnInfo"),
   ruleNameInfo: getEl("ruleNameInfo"),
@@ -9692,7 +9694,11 @@ function localHasOpponentKingCaptureMoveByLegalScan(
     if (capturedKing && protectedKingOwners.has(Number(capturedKing.owner))) return true;
     // 捕獲位置の推定が難しい合成手(フェアリールール/同時移動)向けの保険:
     // 1手シミュレーション後に対象側(手番側+中立)の玉枚数が減っていれば玉取りありとみなす。
-    const simAfter = localSimulateStateAfterCandidate(nextPieces, nextHands, opp, mv, rules, ctx);
+    const hasImitatorSync = Array.isArray(mv?.imitator_plan) && mv.imitator_plan.length > 0;
+    const simAfter = hasImitatorSync
+      ? localRuntimeSimulateMoveState(ctx, nextPieces, nextHands, opp, rules, mv) ||
+        localSimulateStateAfterCandidate(nextPieces, nextHands, opp, mv, rules, ctx)
+      : localSimulateStateAfterCandidate(nextPieces, nextHands, opp, mv, rules, ctx);
     if (!simAfter || !simAfter.board || !Array.isArray(simAfter.board.pieces)) continue;
     const protectedKingCountAfter = simAfter.board.pieces.filter(
       (p) => p && protectedKingOwners.has(Number(p.owner)) && localPieceIsKing(p)
@@ -10291,12 +10297,28 @@ function localHasFuOnFile(pieces, owner, x) {
 }
 
 function localCandidateDistance(cand) {
-  if (!cand || cand.kind !== "move") return 1;
+  if (!cand) return 1;
+  if (cand.kind === "drop") return 1;
+  if (cand.kind !== "move") return 1;
   const fx = Number(cand.from?.x || 0);
   const fy = Number(cand.from?.y || 0);
   const tx = Number(cand.to?.x || 0);
   const ty = Number(cand.to?.y || 0);
   return Math.sqrt((tx - fx) ** 2 + (ty - fy) ** 2);
+}
+
+function localApplyMaxiMiniFilter(moves, rules, turn) {
+  const src = Array.isArray(moves) ? moves : [];
+  const applyMaxi = Boolean(rules?.maxi) && Number(turn) === 1;
+  const applyMini = Boolean(rules?.mini) && Number(turn) === 1;
+  if ((!applyMaxi && !applyMini) || src.length <= 0) return src;
+  const scored = src.map((m) => ({ m, dist: localCandidateDistance(m) }));
+  const target = applyMaxi
+    ? Math.max(...scored.map((s) => s.dist))
+    : Math.min(...scored.map((s) => s.dist));
+  return scored
+    .filter((s) => Math.abs(s.dist - target) <= 1e-9)
+    .map((s) => s.m);
 }
 
 function localCandidateLastMoveInfo(cand) {
@@ -11246,11 +11268,14 @@ function localComputeLegalAll(ctx, options = {}) {
 
   const applyRuleFilterNoGlobalGreedyToBoard = (list) => {
     const { boardMoves, drops } = splitByKind(list);
-    const boardFiltered = localFilterBoardMovesByPiece(ctx, boardMoves, turn, rules, filterOpts);
+    const hasDistanceRule = Boolean(rules?.maxi) || Boolean(rules?.mini);
+    const baseRules = hasDistanceRule ? { ...rules, maxi: false, mini: false } : rules;
+    const boardFiltered = localFilterBoardMovesByPiece(ctx, boardMoves, turn, baseRules, filterOpts);
     const dropFiltered = skipGlobalRuleFilter
       ? drops.slice()
-      : localFilterMovesByRules(ctx, drops, turn, rules, filterOpts);
-    return boardFiltered.concat(dropFiltered);
+      : localFilterMovesByRules(ctx, drops, turn, baseRules, filterOpts);
+    const merged = boardFiltered.concat(dropFiltered);
+    return hasDistanceRule ? localApplyMaxiMiniFilter(merged, rules, turn) : merged;
   };
 
   const targetReplaySpec =
@@ -21509,6 +21534,7 @@ function renderStatus() {
     if (document?.body) document.body.removeAttribute("data-mode");
     ui.sessionInfo.textContent = "session: -";
     ui.revisionInfo.textContent = "revision: -";
+    if (ui.versionInfo) ui.versionInfo.textContent = `version: ${APP_VERSION}`;
     setStatusPair(ui.modeInfo, "モード", "-");
     setStatusPair(ui.turnInfo, "手番", "-");
     setStatusPair(ui.ruleNameInfo, "ルール", "-");
@@ -21531,6 +21557,7 @@ function renderStatus() {
   }
   ui.sessionInfo.textContent = `session: ${sessionId}`;
   ui.revisionInfo.textContent = `revision: ${revision}`;
+  if (ui.versionInfo) ui.versionInfo.textContent = `version: ${APP_VERSION}`;
   if (document?.body) document.body.setAttribute("data-mode", state.mode);
   const modeLabel =
     state.mode === "play" ? (playSubMode === "reverse" ? "検討モード(逆算)" : "検討モード(通常)") : "編集モード";
