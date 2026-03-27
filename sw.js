@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "f-tsume-static-v20260324c";
+const CACHE_NAME = "f-tsume-static-v20260327a";
 const CORE_ASSETS = [
   "./",
   "./index.html",

@@ -787,7 +787,7 @@ const UI_SETTING_DEFS = Object.freeze([
   {
     key: "detect_sennichite",
     label: "千日手を検出",
-    note: "同一局面(同手番)が4回出現したら検出",
+    note: "同一局面(同手番)が2回出現したら検出",
     defaultValue: false,
     type: "boolean",
     section: "display",
@@ -5381,15 +5381,20 @@ function localApplyLegalReplayCandidate(ctx, cand, options = {}) {
   const skipStateBackup = Boolean(options?.skipStateBackup);
   const revBefore = ctx.revision;
   if (cand.kind === "move") {
-    localApplyMoveCore(ctx, {
-      expected_revision: ctx.revision,
-      from: cand.from,
-      to: cand.to,
-      promote: Boolean(cand.promote),
-      rebirth: cand.rebirth || null,
-      no_touch: noTouch,
-      skip_state_backup: skipStateBackup,
-    });
+    try {
+      const body = {
+        expected_revision: ctx.revision,
+        from: cand.from,
+        to: cand.to,
+        promote: Boolean(cand.promote),
+        rebirth: cand.rebirth || null,
+        no_touch: noTouch,
+        skip_state_backup: skipStateBackup,
+      };
+      localApplyMoveCore(ctx, body);
+    } catch (e) {
+      throw e;
+    }
     if (noTouch) {
       ctx.revision = revBefore;
       ctx.state.revision = revBefore;
@@ -5397,14 +5402,18 @@ function localApplyLegalReplayCandidate(ctx, cand, options = {}) {
     return true;
   }
   if (cand.kind === "drop") {
-    localApplyDropCore(ctx, {
-      expected_revision: ctx.revision,
-      owner: cand.owner,
-      name: cand.name,
-      to: cand.to,
-      no_touch: noTouch,
-      skip_state_backup: skipStateBackup,
-    });
+    try {
+      localApplyDropCore(ctx, {
+        expected_revision: ctx.revision,
+        owner: cand.owner,
+        name: cand.name,
+        to: cand.to,
+        no_touch: noTouch,
+        skip_state_backup: skipStateBackup,
+      });
+    } catch (e) {
+      throw e;
+    }
     if (noTouch) {
       ctx.revision = revBefore;
       ctx.state.revision = revBefore;
@@ -5457,7 +5466,8 @@ function localReplayMoveTextOnCurrent(ctx, targetText, options = {}) {
   };
   const replayComputeBaseOptions = {
     // 棋譜再生時は「その手が指せるか」のみ必要で、終局状態判定は不要。
-    skipStatusEvaluation: true,
+    // ただし All-in-Shogi は高速判定経路で取りこぼしが出るため通常判定を使う。
+    skipStatusEvaluation: !Boolean(ctx?.state?.rules?.all_in_shogi),
     skipNoCheckStatusProbe: true,
     // 棋譜再生は1手一致判定のみなので、notationソートは不要。
     skipSort: true,
@@ -7163,6 +7173,10 @@ const LOCAL_FALLBACK_DISPLAY_TO_NAME = Object.freeze({
   横行: "横行",
   響: "Friend",
   Friend: "Friend",
+  "■": "Imitator",
+  "□": "Teleport-Imitator",
+  "■(I)": "Imitator",
+  "□(I)": "Teleport-Imitator",
   "◆": "塔",
   塔: "塔",
   なし: "__none__",
@@ -9659,12 +9673,17 @@ function localHasOpponentKingCaptureMoveByLegalScan(
   ctx
 ) {
   const opp = Number(selfCheckOwner) === 0 ? 1 : 0;
+  const simRules = localMergeRulesWithDefaults(rules || {});
+  // 「玉取り可能手があるか」の確認は王手義務判定とは独立に行う。
+  // ここで王手義務を残すと、Imitator 等で合法手が過剰に0件化し、
+  // 王手成立手を誤って非王手扱いする。
+  simRules.allow_sente_non_check = true;
   const simState = {
     mode: "play",
     turn: opp,
     board: { width: 9, height: 9, pieces: cloneJson(nextPieces || []) },
     hands: localCloneHands(nextHands),
-    rules: localMergeRulesWithDefaults(rules || {}),
+    rules: simRules,
   };
   const simCtx = localBuildAnalysisContext(
     simState,
@@ -10598,6 +10617,7 @@ function localSenteCheckObligationSatisfiedByRuntime(
   const nextPieces = simState.board?.pieces;
   const nextHands = simState.hands;
   if (!Array.isArray(nextPieces)) return false;
+  const hasImitatorOnBoard = nextPieces.some((p) => p && localIsImitatorPiece(p));
   const simInfo = localCandidateLastMoveInfo(mv);
   const simMoveStr = String(mv?.notation || "");
   const defender = Number(turn) === 0 ? 1 : 0;
@@ -10611,22 +10631,23 @@ function localSenteCheckObligationSatisfiedByRuntime(
     neutralTurnOwner: Number(turn),
     ctx,
   });
-  if (givesCheck) {
-    // Imitator 合成手などで高速判定が過検出することがあるため、
-    // 次局面での「実際の玉取り可能性」を追加で確認する。
-    if (
-      localHasOpponentKingCaptureMoveByLegalScan(
-        nextPieces,
-        nextHands,
-        defender,
-        rules,
-        simInfo,
-        simMoveStr,
-        ctx
-      )
-    ) {
-      return true;
-    }
+
+  // Imitator 合成手では高速王手判定が過検出/過小検出しやすいため、
+  // 玉取り可能性の合法手走査を優先して王手成立を判定する。
+  const givesCheckByLegal = localHasOpponentKingCaptureMoveByLegalScan(
+    nextPieces,
+    nextHands,
+    defender,
+    rules,
+    simInfo,
+    simMoveStr,
+    ctx
+  );
+  if (hasImitatorOnBoard) {
+    // Imitator がいても、直接王手判定で成立している手は落とさない。
+    if (givesCheck || givesCheckByLegal) return true;
+  } else {
+    if (givesCheck || givesCheckByLegal) return true;
   }
 
   if (Boolean(options?.allowStalemateFinishWithoutCheck)) {
@@ -11670,12 +11691,27 @@ function localComputeLegalAll(ctx, options = {}) {
 
   let legalNoObligation = null;
   let legalFiltered = [];
+  const hasImitatorOnBoard = pieces.some((p) => p && localIsImitatorPiece(p));
   if (requiresSenteCheck) {
     legalNoObligation = applyRuleFilterNoGlobalGreedyToBoard(preObligation);
     const obligationApplied = preObligation.filter(
       (mv) => Boolean(mv._gives_check) || Boolean(mv._takes_king) || Boolean(mv._stalemate_finish)
     );
     legalFiltered = applyRuleFilterNoGlobalGreedyToBoard(obligationApplied);
+    if (
+      hasImitatorOnBoard &&
+      !skipSenteRuntimeObligationFilter &&
+      Array.isArray(legalNoObligation) &&
+      legalNoObligation.length > 0
+    ) {
+      // Imitator 合成手は高速王手判定の取りこぼしがあるため、
+      // 王手義務前の候補を一度通し、後段のランタイム判定で絞り込む。
+      legalFiltered = legalNoObligation.slice();
+    }
+    if (hasImitatorOnBoard && legalFiltered.length === 0 && Array.isArray(legalNoObligation) && legalNoObligation.length > 0) {
+      // Imitator 合成手で高速王手判定が取りこぼす場合は、候補を残してランタイム検証に委ねる。
+      legalFiltered = legalNoObligation.slice();
+    }
   } else {
     legalFiltered = applyRuleFilterNoGlobalGreedyToBoard(preObligation);
     legalNoObligation = legalFiltered;
@@ -11684,7 +11720,6 @@ function localComputeLegalAll(ctx, options = {}) {
     legalFiltered.sort((a, b) => String(a?.notation || "").localeCompare(String(b?.notation || ""), "ja"));
   }
   let legalSource = legalFiltered;
-  const hasImitatorOnBoard = pieces.some((p) => p && localIsImitatorPiece(p));
   if (
     requiresSenteCheck &&
     hasImitatorOnBoard &&
