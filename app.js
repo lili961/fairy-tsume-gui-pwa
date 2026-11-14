@@ -1,4 +1,4 @@
-﻿const FILE_LABELS = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
+const FILE_LABELS = ["９", "８", "７", "６", "５", "４", "３", "２", "１"];
 const RANK_LABELS = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
 const APP_VERSION = "v1.0.0";
 const IS_WORKER_CONTEXT =
@@ -3465,13 +3465,18 @@ async function clearCustomCatalogOverlay() {
 async function ensureEditableCustomCatalogBase() {
   const existing = loadCustomCatalogFromStorage();
   if (existing) return existing;
-  const res = await fetch("./custom_catalog.sample.json");
-  if (!res.ok) throw new Error(`初期カタログ読込に失敗しました（${res.status}）`);
-  const payload = await res.json();
-  const normalized = normalizeCustomCatalogPayload(payload);
-  if (!normalized) throw new Error("初期カタログ形式が不正です");
-  saveCustomCatalogToStorage(normalized);
-  return normalized;
+
+  // 初期カタログJSONは配布物に含まれない場合があるため、
+  // 読み込みに失敗した場合は空の編集用カタログから開始する。
+  const emptyCatalog = normalizeCustomCatalogPayload({
+    kind: "f-tsume-custom-catalog-v1",
+    version: 1,
+    pieces: { registry: [] },
+    rule_composition: null,
+  });
+  if (!emptyCatalog) throw new Error("空のカスタムカタログを初期化できません");
+  saveCustomCatalogToStorage(emptyCatalog);
+  return emptyCatalog;
 }
 
 async function addUiDefinedFairyPiece(def) {
@@ -11775,16 +11780,20 @@ function localComputeLegalAll(ctx, options = {}) {
     status = { kind: "none", text: "" };
   } else if (legal.length === 0) {
     const selfInCheckNow = localIsInCheckWithRules(pieces, turn, rules, { ctx });
-    if (turn === 0 && !allowSenteNonCheck && !selfInCheckNow) {
-      // 先手王手義務が有効で、かつ自玉は王手でない局面で0手のとき:
-      // 王手義務を外しても0手ならステイルメイトを優先し、
-      // 王手義務を外せば指せる手がある場合のみ「王手義務で指し手なし」。
-      const hasNoObligationMove = Array.isArray(legalNoObligation) && legalNoObligation.length > 0;
-      if (!hasNoObligationMove) {
-        status = { kind: "stalemate", text: "ステイルメイト" };
-      } else {
-        status = { kind: "sente_obligation_no_moves", text: "王手義務で指し手なし" };
-      }
+    const hasNoObligationMove =
+      turn === 0 &&
+      !allowSenteNonCheck &&
+      Array.isArray(legalNoObligation) &&
+      legalNoObligation.length > 0;
+
+    if (hasNoObligationMove) {
+      // 王手義務を適用しなければ、自玉の王手を回避できる合法手がある。
+      // その手が相手玉への王手義務を満たさない場合は「詰み」ではなく「逃れ」。
+      // 自玉が王手されている局面でも同じ扱いにする。
+      status = { kind: "sente_obligation_no_moves", text: "王手義務で指し手なし" };
+    } else if (turn === 0 && !allowSenteNonCheck && !selfInCheckNow) {
+      // 自玉が王手でなく、王手義務を外しても指し手がない場合はステイルメイト。
+      status = { kind: "stalemate", text: "ステイルメイト" };
     } else {
       const cur = localHistoryCurrentNode(ctx);
       const curInfo = cur?.last_move_info || null;
