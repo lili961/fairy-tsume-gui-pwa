@@ -541,7 +541,7 @@ const PIECEBOX_FAIRY_TAB_LABELS = {
   custom: "追加駒",
 };
 const PIECEBOX_FAIRY_LEAPER_NAMES = new Set(["Knight", "Camel", "Zebra", "Wazir", "Dabbaba", "獅子"]);
-const PIECEBOX_FAIRY_RIDER_NAMES = new Set(["Queen", "NightRider", "Rose"]);
+const PIECEBOX_FAIRY_RIDER_NAMES = new Set(["Queen", "NightRider", "CamelRider", "Rose"]);
 const PIECEBOX_FAIRY_HOPPER_NAMES = new Set([
   "Grasshopper",
   "Bishop-Grasshopper",
@@ -7120,6 +7120,7 @@ const LOCAL_SFEN_NAME_TO_CODE = Object.freeze({
   Zebra: "z",
   Dabbaba: "d",
   NightRider: "Y",
+  CamelRider: "A",
   Locust: "o",
   Siren: "i",
   Triton: "t",
@@ -7479,6 +7480,7 @@ const LOCAL_PIECE_SPECS = Object.freeze({
   Zebra: { type: "step", vectors: LOCAL_VEC_ZEBRA },
   Dabbaba: { type: "step", vectors: LOCAL_VEC_DABBABA },
   NightRider: { type: "slide", vectors: LOCAL_VEC_KNIGHT8 },
+  CamelRider: { type: "slide", vectors: LOCAL_VEC_CAMEL },
   Grasshopper: { type: "hopper", vectors: LOCAL_VEC_KING },
   "Bishop-Grasshopper": { type: "hopper", vectors: LOCAL_VEC_DIAG },
   "Rook-Grasshopper": { type: "hopper", vectors: LOCAL_VEC_ORTHO },
