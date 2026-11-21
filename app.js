@@ -391,6 +391,10 @@ const LOCAL_RULE_LABEL_PARSE_ORDER = Object.freeze([
   "abstinence",
   "maxi",
   "mini",
+  "attacker_maxi",
+  "attacker_mini",
+  "both_maxi",
+  "both_mini",
   "koko",
   "narikin",
   "torikin",
@@ -437,6 +441,10 @@ const LOCAL_RULE_LABELS_CONSTRAINT = Object.freeze([
   ["abstinence", "禁欲"],
   ["maxi", "マキシ"],
   ["mini", "ミニ"],
+  ["attacker_mini", "攻方ミニ"],
+  ["attacker_maxi", "攻方マキシ"],
+  ["both_mini", "双方ミニ"],
+  ["both_maxi", "双方マキシ"],
   ["koko", "Koko"],
   ["narikin", "成禁"],
   ["torikin", "取禁"],
@@ -507,6 +515,10 @@ const LOCAL_DEFAULT_RULES = Object.freeze({
   koma_amari_kin: false,
   maxi: false,
   mini: false,
+  attacker_maxi: false,
+  attacker_mini: false,
+  both_maxi: false,
+  both_mini: false,
   cant_repeat_type: false,
   cant_capture_repeat_type: false,
   annan: false,
@@ -541,7 +553,7 @@ const PIECEBOX_FAIRY_TAB_LABELS = {
   custom: "追加駒",
 };
 const PIECEBOX_FAIRY_LEAPER_NAMES = new Set(["Knight", "Camel", "Zebra", "Wazir", "Dabbaba", "獅子"]);
-const PIECEBOX_FAIRY_RIDER_NAMES = new Set(["Queen", "NightRider", "Rose"]);
+const PIECEBOX_FAIRY_RIDER_NAMES = new Set(["Queen", "NightRider", "CamelRider", "Rose"]);
 const PIECEBOX_FAIRY_HOPPER_NAMES = new Set([
   "Grasshopper",
   "Bishop-Grasshopper",
@@ -618,6 +630,10 @@ const RULE_TAB_KEY_MAP = {
     "abstinence",
     "maxi",
     "mini",
+    "attacker_maxi",
+    "attacker_mini",
+    "both_maxi",
+    "both_mini",
     "koko",
     "cant_repeat_type",
     "cant_capture_repeat_type",
@@ -656,6 +672,7 @@ const CAPTURE_OWNER_MUTUAL_EXCLUSIVE_KEYS = Object.freeze([
   "take_make",
   "k_take_make",
 ]);
+const DISTANCE_MUTUAL_EXCLUSIVE_KEYS = Object.freeze(["maxi", "mini", "attacker_mini", "attacker_maxi", "both_mini", "both_maxi"]);
 const PERFORMANCE_MUTUAL_EXCLUSIVE_KEYS = Object.freeze([
   "annan",
   "anpoku",
@@ -7120,6 +7137,7 @@ const LOCAL_SFEN_NAME_TO_CODE = Object.freeze({
   Zebra: "z",
   Dabbaba: "d",
   NightRider: "Y",
+  CamelRider: "A",
   Locust: "o",
   Siren: "i",
   Triton: "t",
@@ -7479,6 +7497,7 @@ const LOCAL_PIECE_SPECS = Object.freeze({
   Zebra: { type: "step", vectors: LOCAL_VEC_ZEBRA },
   Dabbaba: { type: "step", vectors: LOCAL_VEC_DABBABA },
   NightRider: { type: "slide", vectors: LOCAL_VEC_KNIGHT8 },
+  CamelRider: { type: "slide", vectors: LOCAL_VEC_CAMEL },
   Grasshopper: { type: "hopper", vectors: LOCAL_VEC_KING },
   "Bishop-Grasshopper": { type: "hopper", vectors: LOCAL_VEC_DIAG },
   "Rook-Grasshopper": { type: "hopper", vectors: LOCAL_VEC_ORTHO },
@@ -10331,13 +10350,24 @@ function localCandidateDistance(cand) {
   return Math.sqrt((tx - fx) ** 2 + (ty - fy) ** 2);
 }
 
+function localDistanceRuleMode(rules, turn) {
+  const t = Number(turn);
+  if (t === 1) {
+    if (rules?.both_maxi || rules?.maxi) return "maxi";
+    if (rules?.both_mini || rules?.mini) return "mini";
+  } else if (t === 0) {
+    if (rules?.both_maxi || rules?.attacker_maxi) return "maxi";
+    if (rules?.both_mini || rules?.attacker_mini) return "mini";
+  }
+  return "";
+}
+
 function localApplyMaxiMiniFilter(moves, rules, turn) {
   const src = Array.isArray(moves) ? moves : [];
-  const applyMaxi = Boolean(rules?.maxi) && Number(turn) === 1;
-  const applyMini = Boolean(rules?.mini) && Number(turn) === 1;
-  if ((!applyMaxi && !applyMini) || src.length <= 0) return src;
+  const mode = localDistanceRuleMode(rules, turn);
+  if (!mode || src.length <= 0) return src;
   const scored = src.map((m) => ({ m, dist: localCandidateDistance(m) }));
-  const target = applyMaxi
+  const target = mode === "maxi"
     ? Math.max(...scored.map((s) => s.dist))
     : Math.min(...scored.map((s) => s.dist));
   return scored
@@ -10763,17 +10793,7 @@ function localFilterMovesByRules(ctx, candidates, turn, rules, options = {}) {
     }
   }
 
-  const applyMaxi = Boolean(rules?.maxi) && turn === 1;
-  const applyMini = Boolean(rules?.mini) && turn === 1;
-  if ((applyMaxi || applyMini) && working.length > 0) {
-    const scored = working.map((m) => ({ m, dist: localCandidateDistance(m) }));
-    const target = applyMaxi
-      ? Math.max(...scored.map((s) => s.dist))
-      : Math.min(...scored.map((s) => s.dist));
-    working = scored
-      .filter((s) => Math.abs(s.dist - target) <= 1e-9)
-      .map((s) => s.m);
-  }
+  working = localApplyMaxiMiniFilter(working, rules, turn);
 
   return working;
 }
@@ -10782,7 +10802,7 @@ function localFilterBoardMovesByPiece(ctx, candidates, turn, rules, options = {}
   const moves = Array.isArray(candidates) ? candidates : [];
   if (moves.length <= 0) return [];
   // マキシ/ミニは「駒ごと」ではなく「手番全体の候補」から距離最長/最短を選ぶ。
-  if (rules?.maxi || rules?.mini) {
+  if (DISTANCE_MUTUAL_EXCLUSIVE_KEYS.some((key) => Boolean(rules?.[key]))) {
     return localFilterMovesByRules(ctx, moves, turn, rules, options);
   }
   const grouped = new Map();
@@ -11294,8 +11314,10 @@ function localComputeLegalAll(ctx, options = {}) {
 
   const applyRuleFilterNoGlobalGreedyToBoard = (list) => {
     const { boardMoves, drops } = splitByKind(list);
-    const hasDistanceRule = Boolean(rules?.maxi) || Boolean(rules?.mini);
-    const baseRules = hasDistanceRule ? { ...rules, maxi: false, mini: false } : rules;
+    const hasDistanceRule = DISTANCE_MUTUAL_EXCLUSIVE_KEYS.some((key) => Boolean(rules?.[key]));
+    const baseRules = hasDistanceRule
+      ? { ...rules, maxi: false, mini: false, attacker_maxi: false, attacker_mini: false, both_maxi: false, both_mini: false }
+      : rules;
     const boardFiltered = localFilterBoardMovesByPiece(ctx, boardMoves, turn, baseRules, filterOpts);
     const dropFiltered = skipGlobalRuleFilter
       ? drops.slice()
@@ -16061,6 +16083,19 @@ function applyRuleDraftConstraints(draft, changedPatch) {
   }
   if (draft.k_take_make) {
     draft.take_make = false;
+  }
+  // 距離選択ルールは同時適用できないため、今回ONにしたものを優先する。
+  const distanceKeys = DISTANCE_MUTUAL_EXCLUSIVE_KEYS.filter((key) => validRuleKeys.has(key));
+  if (distanceKeys.length > 0) {
+    let winner = "";
+    for (let i = patchTrueKeysOrdered.length - 1; i >= 0; i -= 1) {
+      const key = String(patchTrueKeysOrdered[i] || "");
+      if (distanceKeys.includes(key)) { winner = key; break; }
+    }
+    if (!winner) winner = distanceKeys.find((key) => draft[key] === true) || "";
+    if (winner) {
+      for (const key of distanceKeys) draft[key] = key === winner;
+    }
   }
   // 性能変化タブのルールは相互排他（常にどれか1つだけON可）として扱う。
   const performanceKeys = PERFORMANCE_MUTUAL_EXCLUSIVE_KEYS.filter((key) => validRuleKeys.has(key));
@@ -24375,7 +24410,7 @@ function reverseComputeOnePlyCandidates(options = {}) {
   });
   const enableNoHandCaptureHypothesis = noHandCaptureNeededByRules || noHandCaptureNeededByAttrs;
   const reverseFastTargetHintEnabled = !(
-    Boolean(rules?.greedy) || Boolean(rules?.abstinence) || Boolean(rules?.maxi) || Boolean(rules?.mini)
+    Boolean(rules?.greedy) || Boolean(rules?.abstinence) || DISTANCE_MUTUAL_EXCLUSIVE_KEYS.some((key) => Boolean(rules?.[key]))
   );
   const seen = new Set();
   const results = [];

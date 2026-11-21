@@ -45,7 +45,11 @@
     "detect_sennichite",
     "strategy",
     "objective",
-    "problem_ply"
+    "problem_ply",
+    "attacker_maxi",
+    "attacker_mini",
+    "both_maxi",
+    "both_mini"
   ],
   "rule_labels": {
     "greedy": "強欲",
@@ -90,7 +94,11 @@
     "allow_check_on_self": "王手放置可",
     "allow_sente_non_check": "非王手可",
     "isardam_type_b": "Isardam（タイプB）",
-    "detect_sennichite": "千日手判定"
+    "detect_sennichite": "千日手判定",
+    "attacker_mini": "攻方ミニ",
+    "attacker_maxi": "攻方マキシ",
+    "both_mini": "双方ミニ",
+    "both_maxi": "双方マキシ"
   },
   "strategy_options": [
     "詰将棋",
@@ -124,6 +132,7 @@
     "Camel": "駱",
     "Zebra": "縞",
     "NightRider": "夜",
+    "CamelRider": "駝",
     "Locust": "蝗",
     "Siren": "汝",
     "Triton": "海",
@@ -167,6 +176,7 @@
     "Camel",
     "Zebra",
     "NightRider",
+    "CamelRider",
     "Locust",
     "Siren",
     "Triton",
@@ -209,6 +219,7 @@
     "Camel": "3x1の八方桂。",
     "Zebra": "3x2の八方桂。",
     "NightRider": "ナイトの方向に何歩でも進める。",
+    "CamelRider": "Camel(3x1の八方桂)の方向に何歩でも進める。",
     "Locust": "Queenの線上の敵を飛び越えてその直後に着地し、飛び越えた駒を取る。",
     "Siren": "移動はQueen、捕獲はLocust。",
     "Triton": "移動はRook、捕獲はRook-Locust。",
